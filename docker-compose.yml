@@ -1,6 +1,6 @@
 services:
   status:
-    build: .
+    image: ghcr.io/likhixang/status-monitor:latest
     container_name: status-monitor
     restart: unless-stopped
     networks:
