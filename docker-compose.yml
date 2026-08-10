@@ -1,0 +1,25 @@
+services:
+  status:
+    build: .
+    container_name: status-monitor
+    restart: unless-stopped
+    networks:
+      - docker_share
+    ports:
+      - "127.0.0.1:8027:8000"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env}
+      - TZ=Asia/Shanghai
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/api/status', timeout=5)"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+networks:
+  docker_share:
+    external: true

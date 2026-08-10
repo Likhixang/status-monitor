@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#1a2029">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Status">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<meta name="mobile-web-app-capable" content="yes">
+<title>AI Model Status</title>
+<script>
+// SW 注册
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js', { scope: '/' });
+}
+</script>
+<script>
+// 主题初始化：渲染前执行，避免首帧闪烁（全靠 data-theme 驱动）
+(function () {
+  try {
+    var t = localStorage.getItem('status_theme');
+    document.documentElement.setAttribute('data-theme', (t === 'dark' || t === 'light' || t === 'system') ? t : 'system');
+  } catch (e) {
+    document.documentElement.setAttribute('data-theme', 'system');
+  }
+})();
+</script>
+<style>
+  [data-theme="dark"] {
+    --bg: #090c10; --bg-top: #090c10; --bg-bottom: #090c10;
+    --panel: #0d1117; --panel2: #161b22; --border: #1d2634;
+    --text: #b1b8c0; --muted: #8b949e;
+    --tooltip-bg: rgba(13,17,23,.97);
+    --green: #5cdd8b; --yellow: #f8a306; --red: #dc3545; --blue: #5b8def; --gray: #848484;
+    --red-bg: rgba(220,53,69,.13); --yellow-bg: rgba(248,163,6,.14); --green-bg: rgba(92,221,139,.14);
+    --shadow: 0 2px 6px rgba(0,0,0,.35), 0 15px 70px rgba(0,0,0,.25);
+  }
+  [data-theme="light"] {
+    --bg: #f4f6f8; --bg-top: #f4f6f8; --bg-bottom: #f4f6f8;
+    --panel: #ffffff; --panel2: #eef1f5; --border: #d0d7de;
+    --text: #20242a; --muted: #6b7280;
+    --tooltip-bg: rgba(255,255,255,.98);
+    --green: #5cdd8b; --yellow: #f8a306; --red: #dc3545; --blue: #3b82f6; --gray: #f0f8ff;
+    --red-bg: rgba(220,53,69,.09); --yellow-bg: rgba(248,163,6,.13); --green-bg: rgba(92,221,139,.12);
+    --shadow: 0 2px 6px rgba(16,24,40,.04), 0 15px 70px rgba(0,0,0,.1);
+  }
+  @media (prefers-color-scheme: light) {
+    [data-theme="system"] { --bg: #f4f6f8; --bg-top: #f4f6f8; --bg-bottom: #f4f6f8;
+    --panel: #ffffff; --panel2: #eef1f5; --border: #d0d7de;
+    --text: #20242a; --muted: #6b7280;
+    --tooltip-bg: rgba(255,255,255,.98);
+    --green: #5cdd8b; --yellow: #f8a306; --red: #dc3545; --blue: #3b82f6; --gray: #f0f8ff;
+    --red-bg: rgba(220,53,69,.09); --yellow-bg: rgba(248,163,6,.13); --green-bg: rgba(92,221,139,.12);
+    --shadow: 0 2px 6px rgba(16,24,40,.04), 0 15px 70px rgba(0,0,0,.1); }
+  }
+  @media (prefers-color-scheme: dark) {
+    [data-theme="system"] { --bg: #090c10; --bg-top: #090c10; --bg-bottom: #090c10;
+    --panel: #0d1117; --panel2: #161b22; --border: #1d2634;
+    --text: #b1b8c0; --muted: #8b949e;
+    --tooltip-bg: rgba(13,17,23,.97);
+    --green: #5cdd8b; --yellow: #f8a306; --red: #dc3545; --blue: #5b8def; --gray: #848484;
+    --red-bg: rgba(220,53,69,.13); --yellow-bg: rgba(248,163,6,.14); --green-bg: rgba(92,221,139,.14);
+    --shadow: 0 2px 6px rgba(0,0,0,.35), 0 15px 70px rgba(0,0,0,.25); }
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); background-image: linear-gradient(180deg, var(--bg-top) 0%, var(--bg) 45%, var(--bg-bottom) 100%); background-attachment: fixed; color: var(--text); font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; min-height: 100vh; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 24px 20px 60px; }
+
+  header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+  header h1 { font-size: 20px; font-weight: 700; display: flex; align-items: center; }
+  header h1::before { content: ''; width: 11px; height: 11px; border-radius: 50%; margin-right: 9px; background: var(--green); box-shadow: 0 0 0 4px var(--green-bg); flex-shrink: 0; }
+  .theme-btn { background: var(--panel2); border: 1px solid var(--border); border-radius: 999px; padding: 5px 14px; font-size: 12px; color: var(--muted); cursor: pointer; transition: .2s; white-space: nowrap; }
+  .theme-btn:hover { border-color: var(--blue); color: var(--text); transform: translateY(-1px); }
+
+  .legend { display: none; }
+
+  /* Kuma 式总状态横幅：实心圆图标 + 大字状态（Kuma: check/exclamation/times circle） */
+  .banner { display: flex; align-items: center; gap: 18px; background: var(--panel); border-radius: 6px; padding: 20px 24px; margin-bottom: 24px; box-shadow: var(--shadow); }
+  .banner .b-ic { width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 17px; font-weight: 700; color: #fff; flex-shrink: 0; }
+  .banner .b-ic.ok { background: var(--green); }
+  .banner .b-ic.partial { background: var(--yellow); }
+  .banner .b-ic.down { background: var(--red); }
+  .banner .b-title { font-size: 25px; font-weight: 700; }
+  .banner .b-sub { font-size: 13px; color: var(--muted); margin-top: 3px; }
+
+  .announce { background: color-mix(in srgb, var(--muted) 9%, transparent); border-radius: 6px; padding: 13px 18px; margin-bottom: 16px; font-size: 14px; color: var(--text); white-space: pre-wrap; }
+
+  /* Kuma 式分组标题 */
+  .group-title { font-size: 22px; font-weight: 700; margin: 26px 0 14px; display: flex; align-items: center; gap: 8px; }
+  .group-title .chevron { font-size: 14px; color: var(--muted); transition: .2s; }
+  .group-title .chevron.collapsed { transform: rotate(-90deg); }
+
+  /* Kuma 式渠道（分组）标题 */
+  .channel { margin-bottom: 26px; }
+  .channel-head { display: flex; align-items: center; gap: 12px; padding: 0 0 10px; flex-wrap: wrap; }
+  .channel-name { font-weight: 700; font-size: 20px; }
+  .channel-name .ch-timeout { font-weight: 400; font-size: 12px; color: var(--muted); margin-left: 8px; }
+  .ch-meta { color: var(--muted); font-size: 12px; display: flex; align-items: center; gap: 8px; margin-left: auto; }
+  .ch-meta .abnormal-count { color: var(--red); font-weight: 600; }
+  /* Kuma 式监控列表容器（shadow-box） */
+  .channel-list { background: var(--panel); border-radius: 6px; box-shadow: var(--shadow); overflow: hidden; }
+  /* Kuma 式状态徽章（Bootstrap 实心 badge） */
+  .badge { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; padding: 3px 12px; border-radius: 999px; white-space: nowrap; }
+  .badge.up { background: var(--green); color: #fff; }
+  .badge.down { background: var(--red); color: #fff; }
+  .badge.unknown { background: #6c757d; color: #fff; }
+  .badge.maintenance { background: var(--yellow); color: #000; }
+
+  /* Kuma 式监控行：左=徽章+名称，右=心跳条，同一行（无分隔线，靠 padding 区分） */
+  .model { padding: 14px 20px; }
+  .model-main { display: flex; align-items: center; gap: 14px; min-width: 0; }
+  .m-left { flex: 1 1 45%; min-width: 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .m-right { flex: 1 1 55%; min-width: 0; }
+  /* Kuma 式 uptime pill（Bootstrap rounded-pill bg-*：实心底 + 白字） */
+  .m-badge { display: inline-block; font-size: 13px; font-weight: 700; padding: 4px 14px; border-radius: 999px; min-width: 62px; text-align: center; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .m-badge.good { background: var(--green); color: #fff; }
+  .m-badge.warn { background: var(--yellow); color: #000; }
+  .m-badge.bad { background: var(--red); color: #fff; }
+  .m-badge.na { background: #6c757d; color: #fff; }
+  .model-name { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px; word-break: break-all; }
+  .model-status { font-size: 12px; }
+  .model-status.up { color: var(--green); }
+  .model-status.down { color: var(--red); font-weight: 700; }
+  .model-status.partial { color: var(--yellow); font-weight: 600; }
+  .model-status.unknown { color: var(--muted); }
+  .model-status.maintenance { color: var(--yellow); }
+  /* Kuma 式 extra-info：名称下方小字（统计/错误/停测） */
+  .extra-info { color: var(--muted); font-size: 11px; margin-top: 5px; display: flex; gap: 14px; flex-wrap: wrap; }
+  .extra-info .ei-latest { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .extra-info .ei-latest.good { color: var(--green); } .extra-info .ei-latest.warn { color: var(--yellow); } .extra-info .ei-latest.bad { color: var(--red); }
+  .extra-info .err { color: var(--red); max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .extra-info .ei-count { font-variant-numeric: tabular-nums; }
+  /* Kuma 式心跳条（mid：5px × 16px，靠右显示最近 N 格） */
+  .bars { display: flex; gap: 2px; height: 16px; overflow: hidden; justify-content: flex-end; }
+  .bar { flex: 0 0 5px; height: 16px; border-radius: 3px; cursor: pointer; transition: filter .15s; }
+  .bar.g { background: var(--green); } .bar.y { background: var(--yellow); }
+  .bar.r { background: var(--red); } .bar.n { background: var(--gray); }
+  .bar:hover { filter: brightness(1.35); }
+  /* Kuma 式两端时间标签（仅桌面，Kuma isMobile 隐藏） */
+  .bars-scale { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; margin-top: 3px; font-variant-numeric: tabular-nums; }
+  .tt { position: fixed; z-index: 999; display: none; background: var(--tooltip-bg); border: 1px solid var(--border); border-radius: 4px; padding: 8px 12px; font-size: 12px; pointer-events: none; box-shadow: var(--shadow); white-space: nowrap; }
+  .tt .t-st { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 7px; }
+  .tt .t-time { font-weight: 700; font-variant-numeric: tabular-nums; }
+
+  /* Kuma 式事件区：h2 标题 + shadow-box 列表卡片（无左色条） */
+  .section-title { font-size: 20px; font-weight: 700; margin: 28px 0 12px; display: flex; align-items: center; gap: 8px; }
+  .incident-list { background: var(--panel); border-radius: 6px; box-shadow: var(--shadow); overflow: hidden; }
+  .incident { display: flex; gap: 12px; align-items: flex-start; padding: 14px 18px; font-size: 13px; border-bottom: 1px solid var(--border); }
+  .incident:last-child { border-bottom: none; }
+  .incident .i-title { font-weight: 600; }
+  .incident .i-title.t-down { color: var(--red); }
+  .incident .i-title.t-partial { color: var(--yellow); }
+  .incident .i-title.t-resolved { color: var(--muted); }
+  .incident .i-meta { color: var(--muted); font-size: 12px; margin-top: 3px; }
+  .incident .i-note { color: var(--red); margin-top: 3px; font-size: 12px; }
+  .empty { color: var(--muted); font-size: 13px; padding: 10px 2px; }
+  .pulse { animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
+  @media (max-width: 720px) {
+    /* Kuma 小屏布局：左 75%（徽章+名称）右 25%（心跳条） */
+    .m-left { flex: 1 1 75%; }
+    .m-right { flex: 1 1 25%; }
+    .channel-head > span:first-child { flex-basis: 100%; }
+    .bars-scale { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1 id="site-title">AI Model Status</h1>
+    <button class="theme-btn" id="theme-btn">系统</button>
+  </header>
+
+  <div class="banner" id="banner"></div>
+
+  <div class="announce" id="announce" style="display:none"></div>
+
+  <div class="section-title">故障事件</div>
+  <div class="incident-list" id="incidents"><div class="empty">加载中…</div></div>
+
+  <div id="groups"><div class="empty">加载中…</div></div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const ST = { up: '可用', down: '异常', partial: '部分', unknown: '无数据', maintenance: '维护中' };
+const modelStatusHtml = (st) => {
+  if (st === 'down') return '<span class="model-status down">异常</span>';
+  if (st === 'maintenance') return '<span class="model-status maintenance">维护中</span>';
+  if (st === 'partial') return '<span class="model-status partial">部分</span>';
+  const cls = (st === 'up' || st === 'unknown') ? st : 'unknown';
+  return `<span class="model-status ${cls}">${ST[st] || ST.unknown}</span>`;
+};
+
+function fmtSec(ms) {
+  if (ms === null || ms === undefined) return '—';
+  return (ms / 1000).toFixed(1) + ' s';
+}
+
+/*
+ * ⚠️ 双页同步维护提醒（status 页 ↔ admin 状态总览页）
+ * ──────────────────────────────────────────────
+ * 本文件（index.html）与 static/admin.html 的「状态总览」tab 共用同一套
+ * 渲染逻辑：barClass / BAR_ST / BAR_COLOR / fmtDTs /
+ * tooltip / 可用率分级 / 超时 >Xs 显示 / 状态文本 / 主题 CSS 变量 / --gray 等。
+ * admin.html 中对应函数是 loadOverview()（含内联的 bars、scale、meta 渲染）。
+ *
+ * 修改本文件以下任何一块时，必须同步修改 admin.html 的对应部分，否则两页
+ * 表现不一致（历史上已多次出现：探测条颜色、面板背景、tooltip、主题变量…）：
+ *   - 探测条颜色/状态类  → admin.html 的 .ov-bar 样式 + loadOverview 内联渲染
+ *   - 延迟显示逻辑       → loadOverview 内联 latHtml
+ *   - 状态文本 ST        → admin.html 的 ST 字典 + loadOverview stHtml
+ *   - 时间轴两端式 bars-scale → loadOverview 内联生成（已同步）
+ *   - 主题 CSS 变量      → admin.html 的 <style> 四个主题块
+ * ──────────────────────────────────────────────
+ */
+
+function modelBadge(m) {
+  if (m.suspended) return '<span class="model-status unknown">已停测</span>';
+  return modelStatusHtml(m.status);
+}
+
+function barClass(v) {
+  if (v === null || v === undefined) return 'n';
+  if (v === 1) return 'g';
+  if (v === 0) return 'r';
+  return 'y';
+}
+const BAR_ST = { g: '可用', y: '首字偏慢 / 部分失败', r: '不可用', n: '无数据' };
+const BAR_COLOR = { g: 'var(--green)', y: 'var(--yellow)', r: 'var(--red)', n: 'var(--gray)' };
+
+function fmtDTs(d) {
+  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
+}
+
+// 色块悬停 tooltip（事件委托，DOM 重建无需重绑）
+const tt = document.createElement('div');
+tt.className = 'tt';
+document.body.appendChild(tt);
+document.addEventListener('mouseover', (e) => {
+  const b = e.target.closest('.bar');
+  if (!b) return;
+  tt.innerHTML = `<span class="t-st" style="background:${BAR_COLOR[b.dataset.c]}"></span>` +
+    `<span class="t-time">${b.dataset.time}</span> · ${b.dataset.st}`;
+  tt.style.display = 'block';
+  const pad = 12;
+  let l = e.clientX + pad, t = e.clientY - 10 - tt.offsetHeight;
+  if (l + tt.offsetWidth > window.innerWidth - 8) l = e.clientX - pad - tt.offsetWidth;
+  if (t < 8) t = e.clientY + 18;
+  tt.style.left = l + 'px';
+  tt.style.top = t + 'px';
+});
+document.addEventListener('mouseout', (e) => {
+  if (e.target.closest('.bar')) tt.style.display = 'none';
+});
+function fmtTime(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso.replace(' ', 'T') + 'Z');
+  return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
+}
+function fmtUptime(v) { return v === null || v === undefined ? '—' : v.toFixed(2) + '%'; }
+function fmtMs(v) { return v === null || v === undefined ? '—' : v + ' ms'; }
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function fmtDuration(sec) {
+  if (sec === null || sec === undefined) return '';
+  if (sec < 60) return sec + ' 秒';
+  if (sec < 3600) return (sec / 60).toFixed(0) + ' 分钟';
+  if (sec < 86400) return (sec / 3600).toFixed(1) + ' 小时';
+  return (sec / 86400).toFixed(1) + ' 天';
+}
+
+// Kuma 式相对时间：now / Xm ago / Xh ago / Xd ago
+function fmtRel(iso) {
+  if (!iso) return '—';
+  const t = new Date(iso.replace(' ', 'T') + 'Z').getTime();
+  const s = Math.max(0, Math.floor((Date.now() - t) / 1000));
+  if (s < 60) return 'now';
+  if (s < 3600) return Math.floor(s / 60) + 'm ago';
+  if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+  return Math.floor(s / 86400) + 'd ago';
+}
+
+function fmtDT(d) {
+  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+// ⚠️ renderModel ↔ admin.html loadOverview 内联模型渲染（同步维护，见文件头注释）
+function renderModel(m) {
+  // 停测模型徽章置灰（避免红色低可用率误解为故障中）
+  const uptimeCls = m.suspended ? 'na' : (m.uptime === null ? 'na' : (m.uptime >= 99 ? 'good' : (m.uptime >= 90 ? 'warn' : 'bad')));
+  const latestCls2 = m.latest_uptime === null ? '' : (m.latest_uptime >= 99 ? 'good' : (m.latest_uptime >= 90 ? 'warn' : 'bad'));
+  const n = m.bars.length;
+  const startTs = Date.now() - m.bar_seconds * n * 1000;
+  const bars = m.bars.map((b, i) => {
+    const cls = barClass(b);
+    return `<i class="bar ${cls}" data-c="${cls}" data-time="${fmtDTs(new Date(startTs + i * m.bar_seconds * 1000))}" data-st="${BAR_ST[cls]}"></i>`;
+  }).join('');
+  // 延迟：超时显示 >Xs，否则显示实际耗时
+  let latHtml;
+  // 流式目标：最新探测成功且有 TTFT → 显示首 token 到达延迟（非流式该字段恒 null，自动不展示）
+  if (m.last_ttft_ms != null) {
+    latHtml = `<span class="model-latency">TTFT ${fmtSec(m.last_ttft_ms)}</span>`;
+  } else if (m.last_latency_ms === null || m.last_latency_ms === undefined) {
+    latHtml = '<span class="model-latency">首字 —</span>';
+  } else if (m.timeout_seconds && m.last_latency_ms >= m.timeout_seconds * 1000) {
+    latHtml = `<span class="model-latency timeout">首字 >${m.timeout_seconds}s</span>`;
+  } else if (m.last_latency_ms > 5000) {
+    latHtml = `<span class="model-latency slow">首字 ${fmtSec(m.last_latency_ms)}</span>`;
+  } else {
+    latHtml = `<span class="model-latency">首字 ${fmtSec(m.last_latency_ms)}</span>`;
+  }
+  const dataN = m.bars.filter(b => b !== null).length;
+  const windowH = Math.round(m.bar_seconds * n / 3600);
+  const suspHtml = m.suspended
+    ? (m.retry_seconds === 0 ? '<span class="err">连续失败已停测</span>' : `<span class="err">连续失败已停测 · ${fmtDuration(m.retry_seconds)}后试探</span>`)
+    : '';
+  // Kuma 式两端时间标签：左=窗口跨度，右=相对时间（Kuma isMobile 时隐藏）
+  const barsScale = `<div class="bars-scale"><span>近 ${windowH}h</span><span>${fmtRel(m.last_check_at)}</span></div>`;
+  return `<div class="model">
+    <div class="model-main">
+      <div class="m-left">
+        <span class="m-badge ${uptimeCls}">${fmtUptime(m.uptime)}</span>
+        <span class="model-name">${escapeHtml(m.name)}</span>
+        ${modelBadge(m)}
+      </div>
+      <div class="m-right">
+        <div class="bars">${bars}</div>
+        ${barsScale}
+      </div>
+    </div>
+    <div class="extra-info">
+      <span class="ei-latest ${latestCls2}">最新 ${fmtUptime(m.latest_uptime)}</span>
+      <span class="ei-count">${m.ok_count}/${m.total_count}</span>
+      <span>${latHtml}</span>
+      <span>最近探测 ${fmtTime(m.last_check_at)}</span>
+      ${suspHtml}
+    </div>
+  </div>`;
+}
+
+// ⚠️ renderChannel ↔ admin.html loadOverview 内联渠道渲染（同步维护，见文件头注释）
+function renderChannel(c) {
+  const abCount = c.models.filter(m => m.status === 'down').length;
+  const abHtml = abCount > 0 ? `<span class="abnormal-count">故障 ${abCount}</span>` : '';
+  const statusText = c.status === 'maintenance' ? '维护中' : (c.status === 'down' ? '异常' : '');
+  return `<div class="channel">
+    <div class="channel-head">
+      <span class="channel-name">${escapeHtml(c.name)}<span class="ch-timeout">(${c.timeout_seconds}s 计超时)</span></span>
+      <span class="ch-meta">${statusText} ${abHtml}</span>
+    </div>
+    <div class="channel-list">${c.models.map(renderModel).join('')}</div>
+  </div>`;
+}
+
+function renderIncident(i) {
+  const titleCls = i.status === 'ongoing' ? (i.severity === 'down' ? 't-down' : 't-partial')
+    : (i.status === 'maintenance' ? 't-partial' : 't-resolved');
+  const label = i.status === 'ongoing'
+    ? (i.severity === 'down' ? '🔴 故障中' : '🟡 部分故障')
+    : (i.status === 'maintenance' ? '🟡 维护中' : '✅ 已解决');
+  const dur = i.duration_seconds !== null ? ` · 持续 ${fmtDuration(i.duration_seconds)}` : '';
+  const note = i.note ? `<div class="i-note">${escapeHtml(i.note)}</div>` : '';
+  return `<div class="incident">
+    <div>
+      <div class="i-title ${titleCls}">${label} ${escapeHtml(i.target_name)}</div>
+      <div class="i-meta">${fmtTime(i.started_at)}${i.ended_at ? ' → ' + fmtTime(i.ended_at) : ''}${dur}</div>
+      ${note}
+    </div>
+  </div>`;
+}
+
+async function refresh() {
+  try {
+    const r = await fetch('/api/status');
+    const d = await r.json();
+    $('site-title').textContent = d.site_title;
+    document.title = d.site_title;
+
+    if (d.announcement) { $('announce').style.display = 'block'; $('announce').textContent = d.announcement; }
+    else { $('announce').style.display = 'none'; }
+
+    const s = d.summary;
+    const uptimeCls = s.uptime === null ? '' : (s.uptime >= 99 ? 'good' : (s.uptime >= 90 ? 'warn' : 'bad'));
+    const latestCls = s.latest_uptime === null ? '' : (s.latest_uptime >= 99 ? 'good' : (s.latest_uptime >= 90 ? 'warn' : 'bad'));
+    // Kuma 式总状态横幅：图标 + 大字状态
+    let bIc = 'ok', bTitle = '全部系统正常', bSub = '所有监控目标运行正常';
+    if (s.abnormal > 0) {
+      bIc = 'down'; bTitle = '服务异常'; bSub = `${s.abnormal} 个模型不可用`;
+    } else if (s.abnormal_channels > 0) {
+      bIc = 'partial'; bTitle = '部分服务降级'; bSub = `${s.abnormal_channels} 个渠道存在异常`;
+    }
+    const bIcon = bIc === 'ok' ? '✓' : (bIc === 'partial' ? '⚠' : '✕');
+    $('banner').innerHTML = `<div class="b-ic ${bIc}">${bIcon}</div>
+      <div><div class="b-title">${bTitle}</div><div class="b-sub">${bSub}</div></div>`;
+
+    $('groups').innerHTML = d.groups.map(g =>
+      `<div class="group-title"><span class="chevron">▾</span>${escapeHtml(g.group)}</div>${g.targets.map(renderChannel).join('')}`
+    ).join('') || '<div class="empty">暂无监测目标</div>';
+
+    const events = [...d.ongoing_incidents, ...d.recent_incidents];
+    $('incidents').innerHTML = events.length
+      ? events.map(renderIncident).join('')
+      : '<div class="empty">当前无故障事件</div>';
+  } catch (e) {
+    $('meta').textContent = '获取状态失败: ' + e.message;
+  }
+}
+
+refresh();
+setInterval(refresh, 30000);
+
+// ---------- 主题切换：系统 / 暗色 / 亮色 ----------
+const THEMES = ['system', 'dark', 'light'];
+const THEME_TEXTS = { system: '系统', dark: '暗色', light: '亮色' };
+const saved = localStorage.getItem('status_theme');
+const docEl = document.documentElement;
+if (saved && THEMES.includes(saved)) docEl.setAttribute('data-theme', saved);
+else docEl.setAttribute('data-theme', 'system');
+function applyTheme(name) {
+  docEl.setAttribute('data-theme', name);
+  $('theme-btn').textContent = THEME_TEXTS[name];
+}
+$('theme-btn').onclick = () => {
+  const cur = docEl.getAttribute('data-theme');
+  const next = THEMES[(THEMES.indexOf(cur) + 1) % 3];
+  applyTheme(next);
+  localStorage.setItem('status_theme', next);
+};
+applyTheme(docEl.getAttribute('data-theme'));
+// 跨标签页同步：status 页切换后 admin 页即时跟随（反之亦然）
+window.addEventListener('storage', (e) => {
+  if (e.key === 'status_theme' && e.newValue && THEMES.includes(e.newValue)) {
+    applyTheme(e.newValue);
+  }
+});
+</script>
+</body>
+</html>

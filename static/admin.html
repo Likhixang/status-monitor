@@ -1,0 +1,1120 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="manifest" href="/manifest-admin.json">
+<meta name="theme-color" content="#1a2029">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Status">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<meta name="mobile-web-app-capable" content="yes">
+<title>状态站管理</title>
+<script>
+// SW 注册
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js', { scope: '/' });
+}
+</script>
+<script>
+// 主题初始化：渲染前执行，避免首帧闪烁（全靠 data-theme 驱动）
+(function () {
+  try {
+    var t = localStorage.getItem('status_theme');
+    document.documentElement.setAttribute('data-theme', (t === 'dark' || t === 'light' || t === 'system') ? t : 'system');
+  } catch (e) {
+    document.documentElement.setAttribute('data-theme', 'system');
+  }
+})();
+</script>
+<style>
+  [data-theme="dark"] {
+    --bg: #090c10; --bg-top: #090c10; --bg-bottom: #090c10;
+    --panel: #0d1117; --panel2: #161b22; --border: #1d2634;
+    --text: #b1b8c0; --muted: #8b949e;
+    --tooltip-bg: rgba(13,17,23,.97);
+    --green: #5cdd8b; --yellow: #f8a306; --red: #dc3545; --blue: #5b8def; --gray: #848484;
+    --red-bg: rgba(220,53,69,.13); --yellow-bg: rgba(248,163,6,.14); --green-bg: rgba(92,221,139,.14);
+    --shadow: 0 2px 6px rgba(0,0,0,.35), 0 15px 70px rgba(0,0,0,.25);
+  }
+  [data-theme="light"] {
+    --bg: #f4f6f8; --bg-top: #f4f6f8; --bg-bottom: #f4f6f8;
+    --panel: #ffffff; --panel2: #eef1f5; --border: #d0d7de;
+    --text: #20242a; --muted: #6b7280;
+    --tooltip-bg: rgba(255,255,255,.98);
+    --green: #5cdd8b; --yellow: #f8a306; --red: #dc3545; --blue: #3b82f6; --gray: #f0f8ff;
+    --red-bg: rgba(220,53,69,.09); --yellow-bg: rgba(248,163,6,.13); --green-bg: rgba(92,221,139,.12);
+    --shadow: 0 2px 6px rgba(16,24,40,.04), 0 15px 70px rgba(0,0,0,.1);
+  }
+  @media (prefers-color-scheme: light) {
+    [data-theme="system"] { --bg: #f4f6f8; --bg-top: #f4f6f8; --bg-bottom: #f4f6f8;
+    --panel: #ffffff; --panel2: #eef1f5; --border: #d0d7de;
+    --text: #20242a; --muted: #6b7280;
+    --tooltip-bg: rgba(255,255,255,.98);
+    --green: #5cdd8b; --yellow: #f8a306; --red: #dc3545; --blue: #3b82f6; --gray: #f0f8ff;
+    --red-bg: rgba(220,53,69,.09); --yellow-bg: rgba(248,163,6,.13); --green-bg: rgba(92,221,139,.12);
+    --shadow: 0 2px 6px rgba(16,24,40,.04), 0 15px 70px rgba(0,0,0,.1); }
+  }
+  @media (prefers-color-scheme: dark) {
+    [data-theme="system"] { --bg: #090c10; --bg-top: #090c10; --bg-bottom: #090c10;
+    --panel: #0d1117; --panel2: #161b22; --border: #1d2634;
+    --text: #b1b8c0; --muted: #8b949e;
+    --tooltip-bg: rgba(20,24,31,.97);
+    --green: #5cdd8b; --yellow: #f8a306; --red: #dc3545; --blue: #5b8def; --gray: #848484;
+    --red-bg: rgba(220,53,69,.13); --yellow-bg: rgba(248,163,6,.14); --green-bg: rgba(92,221,139,.14);
+    --shadow: 0 2px 6px rgba(0,0,0,.35), 0 15px 70px rgba(0,0,0,.25); }
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); background-image: linear-gradient(180deg, var(--bg-top) 0%, var(--bg) 45%, var(--bg-bottom) 100%); background-attachment: fixed; color: var(--text); font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; min-height: 100vh; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 24px 20px 60px; }
+  h1 { font-size: 20px; margin-bottom: 18px; }
+  h2 { font-size: 15px; margin-bottom: 12px; }
+
+  input, select, textarea, button { font-family: inherit; font-size: 13px; }
+  input, select, textarea {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 10px; padding: 9px 12px; outline: none; width: 100%; transition: border-color .2s;
+  }
+  input:focus, select:focus, textarea:focus { border-color: var(--blue); box-shadow: 0 0 0 3px var(--blue-bg, rgba(91,141,239,.15)); }
+  textarea { resize: vertical; min-height: 60px; }
+  button { background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 8px 16px; cursor: pointer; font-weight: 600; transition: .2s;
+  }
+    button:hover { border-color: var(--green); color: var(--green); }
+    button.primary { background: var(--green); border-color: var(--green); color: #fff; }
+    button.primary:hover { filter: brightness(1.12); color: #fff; }
+    button.danger { color: var(--red); }
+    button.danger:hover { border-color: var(--red); color: var(--red); }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    .row { display: flex; gap: 10px; }
+    .row > div { flex: 1; }
+    .field { margin-bottom: 10px; }
+    .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+    .field.half { display: inline-block; width: calc(50% - 5px); }
+    .field.half:nth-child(odd) { margin-right: 10px; }
+
+    .login-box { max-width: 360px; margin: 80px auto; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 32px; box-shadow: var(--shadow); }
+    .login-box h2 { text-align: center; margin-bottom: 20px; }
+    .login-err { color: var(--red); font-size: 12px; margin-top: 8px; text-align: center; }
+
+    .theme-btn { background: var(--panel2); border: 1px solid var(--border); border-radius: 999px; padding: 5px 14px; font-size: 12px; color: var(--muted); cursor: pointer; transition: .2s; }
+    .theme-btn:hover { border-color: var(--blue); color: var(--text); transform: translateY(-1px); }
+
+    /* Kuma 式顶部导航（nav-pills 胶囊 + 头像菜单） */
+    .admin-nav { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 12px 4px; margin-bottom: 18px; border-bottom: 1px solid var(--border); }
+    .nav-brand { font-size: 18px; font-weight: 700; text-decoration: none; color: var(--text); display: flex; align-items: center; gap: 8px; }
+    .nav-brand::before { content: ''; width: 10px; height: 10px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 4px var(--green-bg); }
+    .nav-pills { display: flex; gap: 4px; flex-wrap: wrap; list-style: none; }
+    .nav-link { padding: 7px 16px; border-radius: 999px; cursor: pointer; font-size: 13px; color: var(--muted); border: 1px solid transparent; transition: .15s; }
+    .nav-link:hover { color: var(--text); background: var(--panel2); }
+    .nav-link.active { background: var(--green); color: #fff; font-weight: 600; }
+    .nav-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+    .profile-menu { position: relative; }
+    .profile-pic { width: 34px; height: 34px; border-radius: 50%; background: var(--blue); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; cursor: pointer; user-select: none; }
+    .profile-drop { position: absolute; right: 0; top: 42px; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; box-shadow: var(--shadow); min-width: 150px; z-index: 99; padding: 6px; }
+    .profile-name { padding: 8px 10px; font-size: 13px; color: var(--muted); border-bottom: 1px solid var(--border); margin-bottom: 4px; word-break: break-all; }
+    .profile-item { width: 100%; text-align: left; background: transparent; border: none; color: var(--red); font-size: 13px; padding: 8px 10px; border-radius: 4px; cursor: pointer; }
+    .profile-item:hover { background: var(--panel2); }
+    /* Kuma 式 Quick Stats 卡片（shadow-box 五统计：Up/Down/Maintenance/Unknown/Paused） */
+    .qs-card { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; box-shadow: var(--shadow); padding: 24px 6px; text-align: center; margin-bottom: 16px; }
+    .qs-row { display: flex; flex-wrap: nowrap; }
+    /* Bootstrap .col 语义：flex 1 1 0%，永不换行，5 列永远等宽对齐 */
+    .qs-item { flex: 1 1 0%; min-width: 0; text-align: center; }
+    /* 标签固定两行高度：不管换不换行，数字保持同一水平线对齐 */
+    .qs-item h3 { font-size: 12px; color: var(--muted); font-weight: 600; margin-bottom: 4px; line-height: 1.3; min-height: 32px; display: flex; align-items: center; justify-content: center; }
+    .qs-item .num { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.2; }
+    .num.good { color: var(--green); } .num.down { color: var(--red); } .num.mnt { color: var(--blue); } .num.unk { color: var(--muted); } .num.paused { color: var(--muted); }
+    /* Kuma 式事件表格（Name | Status | DateTime | Message） */
+    .evt-title { display: flex; align-items: center; justify-content: space-between; font-size: 14px; font-weight: 700; margin: 18px 0 10px; color: var(--muted); }
+    .evt-table { margin-bottom: 16px; }
+    .status-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+    .status-dot.s-down { background: var(--red); }
+    .status-dot.s-partial { background: var(--yellow); }
+    .status-dot.s-mnt { background: var(--blue); }
+    .status-dot.s-ok { background: var(--green); }
+    .admin-main { min-width: 0; }
+
+    .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 20px; margin-bottom: 16px; box-shadow: var(--shadow); }
+    .panel h2 { font-size: 18px; font-weight: 700; margin-bottom: 14px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; color: var(--muted); font-weight: 600; font-size: 12px; padding: 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    td { padding: 8px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    tr:hover td { background: color-mix(in srgb, var(--muted) 4%, transparent); }
+    /* Kuma 式实心 badge */
+    .badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 3px 12px; border-radius: 999px; }
+    .badge.up { background: var(--green); color: #fff; }
+    .badge.down { background: var(--red); color: #fff; }
+    .badge.partial { background: var(--yellow); color: #000; }
+    .badge.unknown { background: #6c757d; color: #fff; }
+    .badge.maintenance { background: var(--yellow); color: #000; }
+    .badge.off { background: #6c757d; color: #fff; }
+    .badge.ok { background: var(--green); color: #fff; }
+    .badge.fail { background: var(--red); color: #fff; }
+    .kpi { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 14px 18px; min-width: 140px; box-shadow: var(--shadow); }
+  .legend { display: flex; gap: 16px; color: var(--muted); font-size: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .cell { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  .cell.g { background: var(--green); box-shadow: 0 0 6px var(--green-bg); } .cell.y { background: var(--yellow); }
+  .cell.r { background: var(--red); } .cell.n { background: var(--gray); border: 1px solid var(--muted); opacity: .55; }
+  .kpi .v { font-size: 20px; font-weight: 700; }
+  .kpi .v.red { color: var(--red); }
+  .kpi .v.green { color: var(--green); }
+  .kpi .v.yellow { color: var(--yellow); }
+  .kpi .l { font-size: 12px; color: var(--muted); margin-top: 2px; white-space: nowrap; }
+  .ov-channel { border: 1px solid var(--border); border-radius: 14px; padding: 14px 18px; margin-bottom: 12px; background: var(--panel); box-shadow: var(--shadow); }
+  .ov-channel-head { display: flex; align-items: center; gap: 12px; font-weight: 600; margin-bottom: 8px; flex-wrap: wrap; }
+  .ov-channel-head .ch-timeout { font-weight: 400; font-size: 11px; color: var(--muted); margin-left: 6px; }
+  .ov-channel-head .ch-lat { display: inline-flex; align-items: baseline; gap: 5px; }
+  .ov-channel-head .ch-lat-label { font-size: 11px; color: var(--muted); font-weight: 400; }
+  .ov-channel-head .ch-uptime { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .ov-channel-head .ch-uptime.good { color: var(--green); }
+  .ov-channel-head .ch-uptime.warn { color: var(--yellow); }
+  .ov-channel-head .ch-uptime.bad { color: var(--red); }
+  .ov-channel-head .ch-latest { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .ov-channel-head .ch-latest.good { color: var(--green); }
+  .ov-channel-head .ch-latest.warn { color: var(--yellow); }
+  .ov-channel-head .ch-latest.bad { color: var(--red); }
+  .ov-channel-head .ch-meta { color: var(--muted); font-size: 12px; }
+  .ov-channel-head .ch-meta .abnormal-count { color: var(--red); font-weight: 600; margin-left: 4px; }
+  .ov-model { padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .ov-model:last-child { border-bottom: none; }
+  .ov-model-main { display: flex; align-items: center; gap: 14px; min-width: 0; }
+  .ov-model .m-left { flex: 1 1 45%; min-width: 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .ov-model .m-right { flex: 1 1 55%; min-width: 0; }
+  .ov-m-badge { font-size: 13px; font-weight: 700; padding: 4px 14px; border-radius: 999px; min-width: 62px; text-align: center; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .ov-m-badge.good { background: var(--green); color: #fff; }
+  .ov-m-badge.warn { background: var(--yellow); color: #000; }
+  .ov-m-badge.bad { background: var(--red); color: #fff; }
+  .ov-m-badge.na { background: #6c757d; color: #fff; }
+  .extra-info { color: var(--muted); font-size: 11px; margin-top: 5px; display: flex; gap: 14px; flex-wrap: wrap; }
+  .extra-info .ei-latest { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .extra-info .ei-latest.good { color: var(--green); } .extra-info .ei-latest.warn { color: var(--yellow); } .extra-info .ei-latest.bad { color: var(--red); }
+  .extra-info .ei-count { font-variant-numeric: tabular-nums; }
+  .extra-info .err { color: var(--red); max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ov-model .name { flex: 0 1 auto; min-width: 80px; max-width: 200px; font-family: ui-monospace,monospace; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ov-model .m-status { font-size: 12px; min-width: 64px; }
+  .ov-model .m-status.up { color: var(--green); }
+  .ov-model .m-status.down { color: var(--red); font-weight: 700; }
+  .ov-model .m-status.partial { color: var(--yellow); font-weight: 600; }
+  .ov-model .m-status.unknown { color: var(--muted); }
+  .ov-model .m-status.maintenance { color: var(--yellow); }
+  .ov-model .m-lat { min-width: 80px; font-size: 13px; font-variant-numeric: tabular-nums; }
+  .ov-model .m-lat.slow { color: var(--yellow); }
+  .ov-model .m-lat.timeout { color: var(--red); font-weight: 700; }
+  .ov-bars { display: flex; gap: 2px; height: 16px; overflow: hidden; justify-content: flex-end; }
+  .ov-bars.paused { filter: blur(5px); opacity: .55; pointer-events: none; }
+  .ov-bar { flex: 0 0 5px; height: 16px; border-radius: 3px; cursor: pointer; transition: filter .15s; }
+  .ch-paused { font-weight: 400; font-size: 11px; color: var(--muted); background: color-mix(in srgb, var(--muted) 16%, transparent); padding: 2px 10px; border-radius: 999px; margin-left: 6px; }
+  .ov-bars-scale { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; margin-top: 3px; font-variant-numeric: tabular-nums; }
+  .ov-bar.g { background: var(--green); }
+  .ov-bar.y { background: var(--yellow); }
+  .ov-bar.r { background: var(--red); }
+  .ov-bar.n { background: var(--gray); }
+  .ov-bar:hover { filter: brightness(1.35); }
+  .tt { position: fixed; z-index: 999; display: none; background: var(--tooltip-bg); border: 1px solid var(--border); border-radius: 12px; padding: 8px 12px; font-size: 12px; pointer-events: none; box-shadow: var(--shadow); white-space: nowrap; }
+  .tt .t-st { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 7px; }
+  .tt .t-time { font-weight: 700; font-variant-numeric: tabular-nums; }
+  .op-btn { padding: 3px 10px; font-size: 12px; margin-right: 4px; }
+  .op-btn.small { padding: 2px 8px; font-size: 11px; }
+
+  .pager { display: flex; align-items: center; gap: 12px; margin-top: 12px; font-size: 13px; color: var(--muted); }
+  .muted { color: var(--muted); }
+  .err-text { color: var(--red); font-size: 12px; margin-top: 6px; }
+  .ok-text { color: var(--green); font-size: 12px; margin-top: 6px; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+  .msg { position: fixed; top: 16px; right: 16px; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px 18px; font-size: 13px; z-index: 99; display: none; box-shadow: var(--shadow); }
+  .msg.show { display: block; animation: fadein .2s; }
+  @keyframes fadein { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; } }
+  .test-result { margin-top: 10px; font-size: 12px; }
+  .test-result .layer { margin-bottom: 4px; }
+  .empty { color: var(--muted); font-size: 13px; padding: 12px 2px; }
+  /* toggle switch */
+  .switch { position: relative; display: inline-block; width: 40px; height: 22px; flex-shrink: 0; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .switch .slider { position: absolute; inset: 0; background: var(--muted); opacity: .4; border-radius: 22px; cursor: pointer; transition: .2s; }
+  .switch .slider::before { content: ''; position: absolute; width: 16px; height: 16px; left: 3px; bottom: 3px; background: #fff; border-radius: 50%; transition: .2s; }
+  .switch input:checked + .slider { background: var(--green); opacity: 1; }
+  .switch input:checked + .slider::before { transform: translateX(18px); }
+  .switch-label { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; cursor: pointer; user-select: none; }
+  @media (max-width: 720px) {
+    /* Kuma 式：移动端导航横滑 */
+    .admin-nav { gap: 8px; padding: 10px 2px; }
+    .nav-brand { font-size: 15px; }
+    .nav-pills { overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; flex: 1; }
+    .nav-pills::-webkit-scrollbar { display: none; }
+    .nav-link { white-space: nowrap; padding: 6px 12px; font-size: 12px; }
+    .qs-item { min-width: 0; }
+    .qs-item h3 { font-size: 11px; min-height: 30px; }
+    .qs-item .num { font-size: 22px; }
+    .ov-model .name { width: auto; flex: 1 1 auto; min-width: 0; }
+    .ov-model .m-left { flex: 1 1 75%; }
+    .ov-model .m-right { flex: 1 1 25%; }
+    .ov-channel-head > span:first-child { flex-basis: 100%; }
+    /* Kuma 式：移动端隐藏时间标签（isMobile），5px 柱保持 */
+    .ov-bars-scale { display: none; }
+
+    /* ===== 管理表格卡片化 ===== */
+    #target-table table, #checks-table table, #incident-table table { display: block; }
+    /* 表头行（页面无 <thead>，直接 tr 首行） */
+    #target-table tr:first-child, #checks-table tr:first-child, #incident-table tr:first-child { display: none; }
+    #target-table tbody, #checks-table tbody, #incident-table tbody { display: block; }
+    #target-table tr, #checks-table tr, #incident-table tr {
+      display: block; position: relative;
+      border: 1px solid var(--border); border-radius: 12px; background: var(--panel2);
+      padding: 10px 12px; margin-bottom: 10px;
+    }
+    #target-table tr:hover td, #checks-table tr:hover td, #incident-table tr:hover td { background: transparent; }
+    #target-table td, #checks-table td, #incident-table td {
+      display: flex; justify-content: space-between; align-items: center; gap: 10px;
+      padding: 4px 0; border-bottom: none; text-align: right;
+    }
+    #target-table td::before, #checks-table td::before,
+    #incident-table td::before, #checks-table td::before {
+      content: attr(data-label); color: var(--muted); font-size: 12px; flex-shrink: 0; text-align: left;
+    }
+    /* 主列（名称/模型/目标）：大字无标签，右侧留出右上角元素 */
+    #target-table td.c-main, #checks-table td.c-main, #incident-table td.c-main {
+      display: block; font-weight: 700; font-size: 15px; padding-right: 64px; white-space: normal;
+    }
+    #target-table td.c-main::before, #checks-table td.c-main::before, #incident-table td.c-main::before { content: none; }
+    /* 探测历史：模型行提到卡片首行（与右上角结果 badge 同行），其余字段按序排 */
+    #checks-table tr { display: flex; flex-direction: column; }
+    #checks-table td:nth-child(2) { order: -1; }  /* 模型 */
+    #checks-table td:nth-child(4) { order: 1; }   /* 延迟 */
+    #checks-table td:nth-child(5) { order: 2; }   /* HTTP */
+    #checks-table td:nth-child(6) { order: 3; }   /* 错误 */
+    #checks-table td:nth-child(7) { order: 4; }   /* 时间 */
+    #checks-table td.c-badge { order: 0; }
+    /* 右上角元素：监测目标排序按钮、探测历史结果、故障事件状态 */
+    #target-table td.c-order, #checks-table td.c-badge, #incident-table td.c-badge {
+      position: absolute; top: 9px; right: 12px; padding: 0; border: none;
+    }
+    #target-table td.c-order::before, #checks-table td.c-badge::before, #incident-table td.c-badge::before { content: none; }
+    /* 操作按钮行：换行铺开 */
+    #target-table td.c-actions, #incident-table td.c-actions {
+      display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-start;
+      margin-top: 6px; padding-top: 8px; border-top: 1px dashed var(--border);
+    }
+    #target-table td.c-actions::before, #incident-table td.c-actions::before { content: none; }
+    #target-table td.c-actions .op-btn, #incident-table td.c-actions .op-btn { margin-right: 0; }
+
+    /* ===== 目标表单（新增/编辑）移动端单列 ===== */
+    #tab-targets .row { flex-direction: column; }
+    #tab-targets .field.half { width: 100%; margin-right: 0; }
+    /* 按钮行保持横向 */
+    #tab-targets .row:has(button) { flex-direction: row; }
+    #tab-targets .row:has(button) button { flex: 1; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="login-view">
+    <div class="login-box">
+      <h2>🔐 状态站管理</h2>
+      <div class="field"><label>用户名</label><input id="login-user" autocomplete="username"></div>
+      <div class="field"><label>密码</label><input id="login-pass" type="password" autocomplete="current-password"></div>
+      <button class="primary" style="width:100%" id="login-btn">登 录</button>
+      <div class="login-err" id="login-err"></div>
+    </div>
+  </div>
+
+  <div id="admin-view" style="display:none">
+    <!-- Kuma 式顶部导航（nav-pills 胶囊 + 头像菜单，无左侧 sidebar） -->
+    <header class="admin-nav">
+      <a class="nav-brand" href="/">⚡ 状态站管理</a>
+      <ul class="nav-pills">
+        <li class="nav-item"><div class="nav-link tab active" data-tab="overview">📊 总览</div></li>
+        <li class="nav-item"><div class="nav-link tab" data-tab="targets">🎯 监测目标</div></li>
+        <li class="nav-item"><div class="nav-link tab" data-tab="checks">🕒 探测历史</div></li>
+        <li class="nav-item"><div class="nav-link tab" data-tab="incidents">🚨 故障事件</div></li>
+        <li class="nav-item"><div class="nav-link tab" data-tab="settings">⚙️ 设置</div></li>
+      </ul>
+      <div class="nav-right">
+        <button class="theme-btn" id="theme-btn">系统</button>
+        <div class="profile-menu" id="profile-menu">
+          <div class="profile-pic" id="profile-pic">K</div>
+          <div class="profile-drop" id="profile-drop" style="display:none">
+            <div class="profile-name" id="profile-name">—</div>
+            <button class="profile-item" id="logout-btn">退出登录</button>
+          </div>
+        </div>
+      </div>
+    </header>
+    <main class="admin-main">
+
+    <!-- 状态总览 -->
+    <div id="tab-overview">
+      <div class="panel">
+        <h2>状态总览</h2>
+        <div class="legend">
+          <span><i class="cell g"></i>可用</span>
+          <span><i class="cell y"></i>首字偏慢 (&gt;5s) / 部分失败</span>
+          <span><i class="cell r"></i>不可用</span>
+          <span><i class="cell n"></i>无数据</span>
+        </div>
+        <div id="ov-qstats"></div>
+        <div id="ov-incidents"></div>
+        <div id="ov-groups"></div>
+      </div>
+    </div>
+
+    <!-- 监测目标 -->
+    <div id="tab-targets" style="display:none">
+      <div class="panel">
+        <h2 style="display:flex;align-items:center;justify-content:space-between">目标列表</h2>
+        <div id="target-table"></div>
+      </div>
+      <div class="panel">
+        <h2 id="form-title">新增目标</h2>
+        <input type="hidden" id="f-id">
+        <div class="row">
+          <div class="field"><label>名称 *</label><input id="f-name" placeholder="如：DeepSeek 官方"></div>
+          <div class="field"><label>分组</label><input id="f-group" value="默认" placeholder="默认"></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>类型</label>
+            <select id="f-type"><option value="openai">OpenAI 非流</option><option value="openai-stream">OpenAI 流式</option><option value="anthropic">Anthropic 非流</option><option value="anthropic-stream">Anthropic 流式</option></select>
+          </div>
+          <div class="field"><label>探测模式</label>
+            <select id="f-mode">
+              <option value="both">连通 + 推理</option>
+              <option value="connectivity">仅连通 (/models)</option>
+              <option value="inference">仅推理 (chat)</option>
+            </select>
+          </div>
+        </div>
+        <div class="field"><label>Base URL *</label><input id="f-url" placeholder="https://api.deepseek.com 或 https://api.deepseek.com/v1"></div>
+        <div class="row">
+          <div class="field"><label>API Key（留空则保留原值）</label><input id="f-key" placeholder="sk-..."></div>
+          <div class="field"><label>模型名（逗号分隔多个，留空自动读取 /models）</label><input id="f-model" placeholder="deepseek-chat,deepseek-reasoner 或留空"></div>
+        </div>
+        <div class="row">
+          <div class="field half"><label>间隔（秒，最短 60）</label><input id="f-interval" type="number" value="120" min="60"></div>
+          <div class="field half"><label>超时（秒）</label><input id="f-timeout" type="number" value="15" min="1"></div>
+          <div class="field half"><label>失败阈值</label><input id="f-fail" type="number" value="3" min="1"></div>
+          <div class="field half"><label>恢复阈值</label><input id="f-recover" type="number" value="3" min="1"></div>
+        </div>
+        <div class="row">
+          <div class="field half"><label>停测阈值（连续失败次数，留空用全局默认）</label><input id="f-suspend-fails" type="number" min="1" max="50" placeholder="默认 5"></div>
+          <div class="field half"><label>试探间隔（秒，0 = 停测后每轮都探测，留空用全局默认）</label><input id="f-retry-sec" type="number" min="0" max="86400" placeholder="默认 1800"></div>
+        </div>
+        <div class="field"><label><input type="checkbox" id="f-enabled" checked style="width:auto"> 启用监测</label></div>
+        <div class="field"><label class="switch-label" style="justify-content:flex-start">在 status 页显示
+            <span class="switch"><input type="checkbox" id="f-show-status" checked><span class="slider"></span></span>
+        </label></div>
+        <div class="row">
+          <button class="primary" id="save-btn">保存</button>
+          <button id="cancel-btn" style="display:none">取消编辑</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 探测历史 -->
+    <div id="tab-checks" style="display:none">
+      <div class="panel">
+        <h2 style="display:flex;align-items:center;justify-content:space-between">探测历史
+          <label class="switch-label">自动刷新
+            <span class="switch"><input type="checkbox" id="auto-refresh" checked><span class="slider"></span></span>
+          </label>
+        </h2>
+        <div class="row" style="margin-bottom:12px">
+          <div class="field"><label>目标</label><select id="checks-target"></select></div>
+          <div class="field"><label>每页</label><select id="checks-size">
+            <option value="50">50</option><option value="100">100</option><option value="200">200</option>
+          </select></div>
+        </div>
+        <div id="checks-table"></div>
+        <div class="pager">
+          <button id="prev-page" class="op-btn">上一页</button>
+          <span id="page-info"></span>
+          <button id="next-page" class="op-btn">下一页</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 故障事件 -->
+    <div id="tab-incidents" style="display:none">
+      <div class="panel">
+        <h2>维护窗口 / 手动事件</h2>
+        <div class="row">
+          <div class="field"><label>目标</label><select id="inc-target"></select></div>
+          <div class="field"><label>类型</label>
+            <select id="inc-type"><option value="maintenance">维护</option><option value="ongoing">故障记录</option></select>
+          </div>
+        </div>
+        <div class="field"><label>备注</label><input id="inc-note" placeholder="如：上游计划维护 14:00-15:00"></div>
+        <button class="primary" id="inc-create-btn">创建事件</button>
+      </div>
+      <div class="panel">
+        <h2>事件列表</h2>
+        <div id="incident-table"></div>
+      </div>
+    </div>
+
+    <!-- 设置 -->
+    <div id="tab-settings" style="display:none">
+      <div class="panel">
+        <h2>站点</h2>
+        <div class="field"><label>站点标题</label><input id="s-title" placeholder="AI Model Status"></div>
+        <div class="field"><label>公告（留空隐藏）</label><textarea id="s-announce" placeholder="如：2026-08-01 00:00 起某上游升级，预计影响 30 分钟"></textarea></div>
+      </div>
+      <div class="panel">
+        <h2>告警推送</h2>
+        <div class="field"><label>Telegram Bot Token</label><input id="s-tg-token" placeholder="123456:ABC-DEF..."></div>
+        <div class="field"><label>Telegram Chat ID</label><input id="s-tg-chat" placeholder="697735771"></div>
+        <div class="field"><label>Bark URL</label><input id="s-bark" placeholder="https://api.day.app/xxxxxxxx/"></div>
+        <div class="field"><label>模型告警防抖（连续失败多少次才推送，默认 3）</label><input id="s-alert-fails" type="number" min="1" max="50" placeholder="3"></div>
+      </div>
+      <div class="panel">
+        <h2>数据保留</h2>
+        <div class="field"><label>探测日志保留天数（自动清理过期记录）</label><input id="s-retention" type="number" min="1" max="90" placeholder="7"></div>
+      </div>
+      <div class="panel">
+        <h2>停测策略（全局默认）</h2>
+        <div class="field"><label>连续失败多少次后停测该模型（目标留空时生效）</label><input id="s-suspend-fails" type="number" min="1" max="50" placeholder="5"></div>
+        <div class="field"><label>停测后试探间隔（秒，0 = 停测后每轮都探测，目标留空时生效）</label><input id="s-retry-sec" type="number" min="0" max="86400" placeholder="1800"></div>
+      </div>
+      <div class="panel">
+        <button class="primary" id="save-settings">保存设置</button>
+        <div id="settings-msg" style="margin-top:8px"></div>
+      </div>
+    </div>
+      </main>
+    </div>
+  </div>
+</div>
+
+<div class="msg" id="toast"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let TOKEN = localStorage.getItem('status_token') || '';
+const ADMIN = 1, UP = 0;
+const ST = { up: '可用', down: '异常', partial: '部分', unknown: '无数据', maintenance: '维护中' };
+
+function fmtSec(ms) {
+  if (ms === null || ms === undefined) return '—';
+  return (ms / 1000).toFixed(1) + ' s';
+}
+function fmtDuration(sec) {
+  if (sec === null || sec === undefined) return '';
+  if (sec < 60) return sec + ' 秒';
+  if (sec < 3600) return Math.round(sec / 60) + ' 分钟';
+  return (sec / 3600).toFixed(1) + ' 小时';
+}
+
+function toast(text) {
+  const el = $('toast');
+  el.textContent = text; el.classList.add('show');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove('show'), 2600);
+}
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function fmtTime(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso.replace(' ', 'T') + 'Z');
+  return d.toLocaleString('zh-CN', { hour12: false });
+}
+// 「最近探测」用：精确到分钟，不带秒
+function fmtTimeMin(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso.replace(' ', 'T') + 'Z');
+  return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
+}
+function errMsg(e) {
+  try { const j = JSON.parse(e.message); return j.detail || j.message || e.message; } catch { return e.message; }
+}
+
+async function api(path, opts = {}) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (TOKEN) headers['Authorization'] = 'Bearer ' + TOKEN;
+  const r = await fetch(path, { ...opts, headers });
+  if (r.status === 401 && path !== '/api/login') { showLogin(); throw new Error('登录已过期'); }
+  if (!r.ok) {
+    let detail = r.statusText;
+    try { const j = await r.json(); detail = j.detail || JSON.stringify(j); }
+    catch {}
+    if (Array.isArray(detail)) detail = detail.map(d => d.msg).join('; ');
+    throw new Error(detail);
+  }
+  return r.json();
+}
+
+// ---------- 登录 ----------
+function showLogin() { $('login-view').style.display = 'block'; $('admin-view').style.display = 'none'; }
+function showAdmin() { $('login-view').style.display = 'none'; $('admin-view').style.display = 'block'; }
+
+$('login-btn').onclick = async () => {
+  $('login-err').textContent = '';
+  try {
+    const d = await api('/api/login', { method: 'POST', body: JSON.stringify({ username: $('login-user').value.trim(), password: $('login-pass').value }) });
+    TOKEN = d.token; localStorage.setItem('status_token', TOKEN);
+    localStorage.setItem('status_user', $('login-user').value.trim());
+    showAdmin(); loadAll(); setupProfile(); toast('登录成功');
+  } catch (e) { $('login-err').textContent = '登录失败：' + errMsg(e); }
+};
+$('login-pass').addEventListener('keydown', e => { if (e.key === 'Enter') $('login-btn').click(); });
+$('logout-btn').onclick = () => { TOKEN = ''; localStorage.removeItem('status_token'); showLogin(); };
+// Kuma 式用户菜单：头像（用户名首字母）+ 下拉
+function setupProfile() {
+  const u = localStorage.getItem('status_user') || 'K';
+  $('profile-pic').textContent = (u[0] || 'K').toUpperCase();
+  $('profile-name').textContent = u;
+}
+$('profile-pic').onclick = (e) => { e.stopPropagation(); $('profile-drop').style.display = $('profile-drop').style.display === 'none' ? 'block' : 'none'; };
+document.addEventListener('click', () => { $('profile-drop').style.display = 'none'; });
+
+if (TOKEN) { showAdmin(); loadAll(); setupProfile(); } else { showLogin(); }
+
+// ---------- 状态总览 ----------
+function barClass(v) {
+  if (v === null || v === undefined) return 'n';
+  if (v === 1) return 'g';
+  if (v === 0) return 'r';
+  return 'y';
+}
+const OV_ST = { up: ['可用', 'up'], down: ['异常', 'down'], partial: ['部分', 'partial'], unknown: ['无数据', 'unknown'], maintenance: ['维护中', 'maintenance'] };
+function ovBadge(m) {
+  if (m.suspended) return '<span class="badge unknown">已停测</span>';
+  const st = OV_ST[m.status] || OV_ST.unknown;
+  return `<span class="badge ${st[1]}">${st[0]}</span>`;
+}
+// Kuma 式相对时间：now / Xm ago / Xh ago / Xd ago
+function fmtRel(iso) {
+  if (!iso) return '—';
+  const t = new Date(iso.replace(' ', 'T') + 'Z').getTime();
+  const s = Math.max(0, Math.floor((Date.now() - t) / 1000));
+  if (s < 60) return 'now';
+  if (s < 3600) return Math.floor(s / 60) + 'm ago';
+  if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+  return Math.floor(s / 86400) + 'd ago';
+}
+
+function fmtDT(d) {
+  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+const BAR_ST = { g: '可用', y: '首字偏慢 / 部分失败', r: '不可用', n: '无数据' };
+const BAR_COLOR = { g: 'var(--green)', y: 'var(--yellow)', r: 'var(--red)', n: 'var(--gray)' };
+
+function fmtDTs(d) {
+  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
+}
+
+// 色块悬停 tooltip（事件委托，DOM 重建无需重绑）
+const tt = document.createElement('div');
+tt.className = 'tt';
+document.body.appendChild(tt);
+document.addEventListener('mouseover', (e) => {
+  const b = e.target.closest('.ov-bar');
+  if (!b) return;
+  tt.innerHTML = `<span class="t-st" style="background:${BAR_COLOR[b.dataset.c]}"></span>` +
+    `<span class="t-time">${b.dataset.time}</span> · ${b.dataset.st}`;
+  tt.style.display = 'block';
+  const pad = 12;
+  let l = e.clientX + pad, t = e.clientY - 10 - tt.offsetHeight;
+  if (l + tt.offsetWidth > window.innerWidth - 8) l = e.clientX - pad - tt.offsetWidth;
+  if (t < 8) t = e.clientY + 18;
+  tt.style.left = l + 'px';
+  tt.style.top = t + 'px';
+});
+document.addEventListener('mouseout', (e) => {
+  if (e.target.closest('.ov-bar')) tt.style.display = 'none';
+});
+/*
+ * ⚠️ 双页同步维护提醒（admin 状态总览页 ↔ status 页）
+ * ──────────────────────────────────────────────
+ * 本文件 admin.html 的「状态总览」tab（loadOverview）与 static/index.html
+ * 共用同一套渲染逻辑，两页必须同步修改（详见 index.html 文件头注释）。
+ *
+ * 修改 loadOverview 的以下任何一块时，必须同步修改 index.html：
+ *   - 模型行渲染（bars / 延迟 / 状态文本 / 可用率）→ index.html renderModel()
+ *   - 渠道头渲染（可用率 / 异常计数 / 维护状态）   → index.html renderChannel()
+ *   - 探测条颜色 / BAR_ST / BAR_COLOR / barClass   → index.html 同名工具
+ *   - 主题 CSS 变量（含 --gray、--tooltip-bg）     → index.html 的 <style> 四主题块
+ * ──────────────────────────────────────────────
+ */
+
+// ⚠️ loadOverview ↔ index.html renderModel/renderChannel（同步维护，见上注释）
+async function loadOverview() {
+  const d = await api('/api/status?include_paused=1');
+  const s = d.summary;
+  // Kuma 式 Quick Stats：Up/Down/Maintenance/Unknown/Paused 五统计（遍历模型统计）
+  let qUp = 0, qDown = 0, qMnt = 0, qUnk = 0, qPaused = 0;
+  d.groups.forEach(g => g.targets.forEach(c => c.models.forEach(m => {
+    if (m.suspended) qPaused++;
+    else if (m.status === 'maintenance') qMnt++;
+    else if (m.status === 'down') qDown++;
+    else if (m.status === 'unknown' || m.status === null) qUnk++;
+    else qUp++;
+  })));
+  $('ov-qstats').innerHTML = `<div class="qs-card"><div class="qs-row">
+    <div class="qs-item"><h3>可用</h3><div class="num good">${qUp}</div></div>
+    <div class="qs-item"><h3>异常</h3><div class="num down">${qDown}</div></div>
+    <div class="qs-item"><h3>维护</h3><div class="num mnt">${qMnt}</div></div>
+    <div class="qs-item"><h3>未知</h3><div class="num unk">${qUnk}</div></div>
+    <div class="qs-item"><h3>停测</h3><div class="num paused">${qPaused}</div></div>
+  </div></div>`;
+  // 故障事件区块：ongoing（含部分故障/异常/维护）+ 2 小时内已解决
+  try {
+    const inc = await api('/api/admin/incidents');
+    const ongoing = inc.incidents.filter(i => i.ended_at === null);
+    const recent = inc.incidents.filter(i => i.ended_at !== null
+      && (Date.now() - new Date(i.ended_at.replace(' ', 'T') + 'Z').getTime()) < 2 * 3600 * 1000).slice(0, 5);
+    const items = [...ongoing, ...recent];
+    $('ov-incidents').innerHTML = items.length
+      ? `<div class="evt-title">故障事件</div>
+        <div style="background:var(--panel);border:1px solid var(--border);border-radius:6px;box-shadow:var(--shadow);overflow:hidden;margin-bottom:16px">
+        <table class="evt-table">
+        <thead><tr><th>名称</th><th>状态</th><th>时间</th><th>消息</th></tr></thead>
+        <tbody>${items.map(i => {
+          const dot = i.status === 'ongoing' ? (i.severity === 'down' ? 's-down' : 's-partial')
+            : (i.status === 'maintenance' ? 's-mnt' : 's-ok');
+          const label = i.status === 'ongoing' ? (i.severity === 'down' ? '故障中' : '部分故障')
+            : (i.status === 'maintenance' ? '维护中' : '已解决');
+          const dur = i.duration_seconds !== null && i.duration_seconds !== undefined
+            ? ' · 持续 ' + fmtDuration(i.duration_seconds) : '';
+          return `<tr>
+            <td>${escapeHtml(i.target_name)}</td>
+            <td><span class="status-dot ${dot}"></span>${label}</td>
+            <td>${fmtTime(i.started_at)}${dur}</td>
+            <td style="color:var(--muted)">${i.note ? escapeHtml(i.note) : '—'}</td>
+          </tr>`;
+        }).join('')}</tbody>
+        </table></div>` : '';
+  } catch (e) { /* 事件接口失败不影响总览 */ }
+  $('ov-groups').innerHTML = d.groups.length ? d.groups.map(g => {
+    const channels = g.targets.map(c => {
+      const models = c.models.map(m => {
+        const uptime = m.uptime === null ? '—' : m.uptime.toFixed(2) + '%';
+        // 停测模型徽章置灰（避免红色低可用率误解为故障中）
+        const uptimeCls2 = m.suspended ? 'na' : (m.uptime === null ? 'na' : (m.uptime >= 99 ? 'good' : (m.uptime >= 90 ? 'warn' : 'bad')));
+        const latestUptime = m.latest_uptime === null ? '—' : m.latest_uptime.toFixed(2) + '%';
+        const latestCls3 = m.latest_uptime === null ? '' : (m.latest_uptime >= 99 ? 'good' : (m.latest_uptime >= 90 ? 'warn' : 'bad'));
+        const n = m.bars.length;
+        const startTs = Date.now() - m.bar_seconds * n * 1000;
+        const bars = m.bars.map((b, i) => {
+          const cls = barClass(b);
+          return `<i class="ov-bar ${cls}" data-c="${cls}" data-time="${fmtDTs(new Date(startTs + i * m.bar_seconds * 1000))}" data-st="${BAR_ST[cls]}"></i>`;
+        }).join('');
+        // 延迟（流式目标优先 TTFT：非流式 last_ttft_ms 恒 null → 自动不展示）
+        let latHtml;
+        if (m.last_ttft_ms != null) {
+          latHtml = `<span class="m-lat">TTFT ${fmtSec(m.last_ttft_ms)}</span>`;
+        } else if (m.last_latency_ms === null || m.last_latency_ms === undefined) {
+          latHtml = '<span class="m-lat">首字 —</span>';
+        } else if (m.timeout_seconds && m.last_latency_ms >= m.timeout_seconds * 1000) {
+          latHtml = `<span class="m-lat timeout">首字 >${m.timeout_seconds}s</span>`;
+        } else if (m.last_latency_ms > 5000) {
+          latHtml = `<span class="m-lat slow">首字 ${fmtSec(m.last_latency_ms)}</span>`;
+        } else {
+          latHtml = `<span class="m-lat">首字 ${fmtSec(m.last_latency_ms)}</span>`;
+        }
+        // 状态文本
+        let stHtml;
+        if (m.suspended) stHtml = '<span class="m-status unknown">已停测</span>';
+        else if (m.status === 'down') stHtml = '<span class="m-status down">异常</span>';
+        else if (m.status === 'maintenance') stHtml = '<span class="m-status maintenance">维护中</span>';
+        else stHtml = `<span class="m-status ${m.status || 'unknown'}">${ST[m.status] || '无数据'}</span>`;
+        const dataN = m.bars.filter(b => b !== null).length;
+        const windowH = Math.round(m.bar_seconds * n / 3600);
+        // Kuma 式两端时间标签：左=窗口跨度，右=相对时间
+        const barsScale = `<div class="ov-bars-scale"><span>近 ${windowH}h</span><span>${fmtRel(m.last_check_at)}</span></div>`;
+        const suspHtml = m.suspended
+          ? (m.retry_seconds === 0 ? '<span class="err">连续失败已停测</span>' : `<span class="err">连续失败已停测 · ${fmtDuration(m.retry_seconds)}后试探</span>`)
+          : '';
+        return `<div class="ov-model">
+          <div class="ov-model-main">
+            <div class="m-left">
+              <span class="ov-m-badge ${uptimeCls2}">${uptime}</span>
+              <span class="name" title="${escapeHtml(m.name)}">${escapeHtml(m.name)}</span>
+              ${stHtml}
+            </div>
+            <div class="m-right">
+              <div class="ov-bars${c.paused ? ' paused' : ''}">${bars}</div>
+              ${barsScale}
+            </div>
+          </div>
+          <div class="extra-info">
+            <span class="ei-latest ${latestCls3}">最新 ${latestUptime}</span>
+            <span class="ei-count">${m.ok_count}/${m.total_count}</span>
+            <span>${latHtml}</span>
+            <span>最近探测 ${fmtTimeMin(m.last_check_at)}</span>
+            ${suspHtml}
+          </div>
+        </div>`;
+      }).join('');
+      const abCount = c.models.filter(mx => mx.status === 'down').length;
+      const abHtml = abCount > 0 ? `<span class="abnormal-count">故障 ${abCount}</span>` : '';
+      const statusText = c.status === 'maintenance' ? '维护中' : (c.status === 'down' ? '异常' : '');
+      return `<div class="ov-channel">
+        <div class="ov-channel-head">
+          <span>${escapeHtml(c.name)}<span class="ch-timeout">(${c.timeout_seconds}s 计超时)</span>${c.paused ? '<span class="ch-paused">已停测</span>' : ''}</span>
+          <span class="ch-meta">${statusText} ${abHtml}</span>
+        </div>
+        ${models}
+      </div>`;
+    }).join('');
+    return `<div style="margin-bottom:16px"><div style="font-weight:700;color:var(--muted);margin-bottom:8px">${escapeHtml(g.group)}</div>${channels}</div>`;
+  }).join('') : '<div class="empty">暂无监测目标</div>';
+}
+
+// ---------- Tabs ----------
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.onclick = () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    document.querySelectorAll('[id^="tab-"]').forEach(p => p.style.display = 'none');
+    $('tab-' + tab.dataset.tab).style.display = 'block';
+    if (tab.dataset.tab === 'targets') loadTargets();
+    if (tab.dataset.tab === 'overview') loadOverview();
+    if (tab.dataset.tab === 'checks') loadChecks();
+    if (tab.dataset.tab === 'incidents') loadIncidents();
+    if (tab.dataset.tab === 'settings') loadSettings();
+  };
+});
+
+// ---------- 自动刷新（默认开，15s 轮询状态总览 / 探测历史 tab）----------
+$('auto-refresh').checked = localStorage.getItem('status_autorefresh') !== '0';
+$('auto-refresh').onchange = () => {
+  localStorage.setItem('status_autorefresh', $('auto-refresh').checked ? '1' : '0');
+};
+setInterval(() => {
+  if (!TOKEN || !$('auto-refresh').checked) return;
+  const tab = document.querySelector('.tab.active')?.dataset.tab;
+  if (tab === 'checks') loadChecks();
+  if (tab === 'overview') loadOverview();
+}, 15000);
+
+// ---------- 目标管理 ----------
+const TYPE_LABELS = {
+  'openai': 'OpenAI 非流', 'openai-stream': 'OpenAI 流式',
+  'anthropic': 'Anthropic 非流', 'anthropic-stream': 'Anthropic 流式'
+};
+function typeLabel(t) { return TYPE_LABELS[t] || t; }
+async function loadTargets() {
+  const d = await api('/api/admin/targets');
+  const t = d.targets;
+  $('target-table').innerHTML = t.length ? `<table>
+    <tr><th>排序</th><th>名称</th><th>分组</th><th>类型</th><th>状态</th><th>模型</th><th>最近检查</th><th>最近延迟</th><th>操作</th></tr>
+    ${t.map((x, i) => `<tr>
+      <td class="c-order">
+        <button class="op-btn" onclick="moveTarget(${x.id}, -1)" ${i===0?'disabled':''} style="font-size:11px;padding:2px 6px">↑</button>
+        <button class="op-btn" onclick="moveTarget(${x.id}, 1)" ${i===t.length-1?'disabled':''} style="font-size:11px;padding:2px 6px">↓</button>
+      </td>
+      <td class="c-main">${escapeHtml(x.name)}</td>
+      <td data-label="分组">${escapeHtml(x.group_name)}</td>
+      <td data-label="类型">${typeLabel(x.type)}</td>
+      <td data-label="状态">${x.enabled ? `<span class="badge ${x.status}">${x.status === 'unknown' ? '—' : (ST[x.status] || x.status)}</span>${!x.show_on_status ? ' <span class="badge unknown">已停测</span>' : ''}` : '<span class="badge off">停用</span>'}</td>
+      <td data-label="模型" class="mono">${escapeHtml(x.model_name || '动态')}</td>
+      <td data-label="最近检查">${fmtTime(x.last_check_at)}</td>
+      <td data-label="最近延迟">${fmtSec(x.last_latency_ms)}</td>
+      <td class="c-actions">
+        <button class="op-btn" onclick="editTarget(${x.id})">编辑</button>
+        <button class="op-btn" onclick="testTarget(${x.id}, '${escapeHtml(x.name)}')">测试</button>
+        <button class="op-btn" onclick="listModels(${x.id})">模型</button>
+        <button class="op-btn" onclick="toggleTarget(${x.id})">${x.enabled ? '停用' : '启用'}</button>
+        <button class="op-btn danger" onclick="deleteTarget(${x.id}, '${escapeHtml(x.name)}')">删除</button>
+      </td></tr>`).join('')}</table>` : '<div class="empty">暂无目标，先在下方添加</div>';
+  $('inc-target').innerHTML = t.map(x => `<option value="${x.id}">${escapeHtml(x.name)}</option>`).join('');
+  // 重建下拉时保留探测历史页当前选中的目标，避免选择被重置回第一个
+  const curChecks = $('checks-target').value;
+  $('checks-target').innerHTML = t.map(x => `<option value="${x.id}">${escapeHtml(x.name)}</option>`).join('');
+  if (curChecks && [...$('checks-target').options].some(o => o.value === curChecks)) $('checks-target').value = curChecks;
+}
+
+function fillForm(x) {
+  $('f-id').value = x.id; $('f-name').value = x.name; $('f-group').value = x.group_name;
+  $('f-type').value = x.type; $('f-mode').value = x.probe_mode;
+  $('f-url').value = x.base_url;
+  // API Key：保持空值，用 placeholder 隐式提示原 key（前6+尾4），留空保存 = 保留原 key
+  $('f-key').value = '';
+  $('f-key').placeholder = x.api_key ? '原 key ' + x.api_key + '，留空保持不变' : '留空则不设置';
+  $('f-model').value = x.model_name || '';
+  $('f-interval').value = x.interval_seconds; $('f-timeout').value = x.timeout_seconds;
+  $('f-fail').value = x.fail_threshold; $('f-recover').value = x.recover_threshold;
+  $('f-suspend-fails').value = x.suspend_fails ?? '';
+  $('f-retry-sec').value = x.suspend_retry_seconds ?? '';
+  $('f-enabled').checked = x.enabled;
+  $('f-show-status').checked = x.show_on_status ?? true;
+  $('form-title').textContent = '编辑目标：' + x.name;
+  $('cancel-btn').style.display = 'inline-block';
+  window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+}
+
+window.editTarget = async (id) => {
+  const d = await api('/api/admin/targets');
+  const x = d.targets.find(t => t.id === id);
+  if (x) fillForm(x);
+};
+
+window.moveTarget = async (id, dir) => {
+  const d = await api('/api/admin/targets');
+  const ids = d.targets.map(t => t.id);
+  const idx = ids.indexOf(id);
+  const j = idx + dir;
+  if (j < 0 || j >= ids.length) return;
+  [ids[idx], ids[j]] = [ids[j], ids[idx]];
+  await api('/api/admin/targets/sort', { method: 'POST', body: JSON.stringify({ order: ids }) });
+  loadTargets();
+};
+
+async function resetForm() {
+  $('f-id').value = ''; $('f-name').value = ''; $('f-group').value = '默认';
+  $('f-type').value = 'openai'; $('f-mode').value = 'both'; $('f-url').value = '';
+  $('f-key').value = ''; $('f-model').value = '';
+  $('f-key').placeholder = 'sk-...';
+  $('f-interval').value = 120; $('f-timeout').value = 15; $('f-fail').value = 3; $('f-recover').value = 3;
+  $('f-suspend-fails').value = ''; $('f-retry-sec').value = '';
+  // 从全局设置读取停测阈值/试探间隔默认值，显示在 placeholder
+  try {
+    const d = await api('/api/admin/settings');
+    $('f-suspend-fails').placeholder = '默认 ' + (d.model_suspend_fails || 5);
+    $('f-retry-sec').placeholder = '默认 ' + (d.suspend_retry_seconds !== undefined ? d.suspend_retry_seconds : 1800);
+  } catch {}
+  $('f-enabled').checked = true;
+  $('f-show-status').checked = true;
+  $('form-title').textContent = '新增目标';
+  $('cancel-btn').style.display = 'none';
+}
+$('cancel-btn').onclick = resetForm;
+
+function collectForm() {
+  if (!$('f-name').value.trim()) throw new Error('名称必填');
+  if (!$('f-url').value.trim()) throw new Error('Base URL 必填');
+  const body = {
+    name: $('f-name').value.trim(), group_name: $('f-group').value.trim() || '默认',
+    type: $('f-type').value, base_url: $('f-url').value.trim(),
+    model_name: $('f-model').value.trim(),
+    probe_mode: $('f-mode').value,
+    interval_seconds: +$('f-interval').value, timeout_seconds: +$('f-timeout').value,
+    fail_threshold: +$('f-fail').value, recover_threshold: +$('f-recover').value,
+    suspend_fails: $('f-suspend-fails').value ? +$('f-suspend-fails').value : null,
+    suspend_retry_seconds: $('f-retry-sec').value !== '' ? +$('f-retry-sec').value : null,
+    enabled: $('f-enabled').checked,
+    show_on_status: $('f-show-status').checked,
+  };
+  // API Key：编辑时输入框为空（placeholder 显示原 key 掩码），留空 = 保留原 key；
+  // 只有用户粘贴了新 key 才提交。含 "..." 防御掩码误提交。
+  const kv = $('f-key').value.trim();
+  if (!kv || kv.includes('...')) body.api_key = '';
+  else body.api_key = kv;
+  return body;
+}
+
+$('save-btn').onclick = async () => {
+  try {
+    const body = collectForm();
+    const id = $('f-id').value;
+    if (id) { await api('/api/admin/targets/' + id, { method: 'PUT', body: JSON.stringify(body) }); toast('已更新'); }
+    else { await api('/api/admin/targets', { method: 'POST', body: JSON.stringify(body) }); toast('已创建'); }
+    resetForm(); loadTargets();
+  } catch (e) { toast('保存失败：' + errMsg(e)); }
+};
+
+window.toggleTarget = async (id) => {
+  try { const d = await api(`/api/admin/targets/${id}/toggle`, { method: 'POST' }); toast(d.enabled ? '已启用' : '已停用'); loadTargets(); }
+  catch (e) { toast('操作失败：' + errMsg(e)); }
+};
+
+window.listModels = async (id) => {
+  const btn = event.target;
+  btn.disabled = true; const old = btn.textContent; btn.textContent = '探测中…';
+  try {
+    const d = await api('/api/admin/targets/' + id + '/list-models', { method: 'POST' });
+    if (!d.ok) {
+      alert(`探测失败（HTTP ${d.status_code ?? '-'}）：\n${d.error || '未知错误'}`);
+      return;
+    }
+    const lines = d.models.map(m => escapeHtml(m)).join('<br>');
+    const modal = document.createElement('div');
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:99';
+    modal.innerHTML = `<div style="background:var(--panel);border:1px solid var(--border);border-radius:12px;max-width:560px;width:90%;max-height:80vh;display:flex;flex-direction:column">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--border);font-weight:700">上游模型列表（${d.count} 个）</div>
+      <div style="padding:14px 18px;overflow:auto;font-family:ui-monospace,monospace;font-size:12px;line-height:1.8">${lines}</div>
+      <div style="padding:12px 18px;border-top:1px solid var(--border);text-align:right">
+        <button class="op-btn" onclick="this.closest('div[style*=\\'position:fixed\\']').remove()">关闭</button>
+      </div></div>`;
+    document.body.appendChild(modal);
+  } catch (e) { alert('探测失败：' + errMsg(e)); }
+  finally { btn.disabled = false; btn.textContent = old; }
+};
+
+window.deleteTarget = async (id, name) => {
+  if (!confirm(`确认删除目标「${name}」？其探测历史和事件将一并删除。`)) return;
+  try { await api('/api/admin/targets/' + id, { method: 'DELETE' }); toast('已删除'); loadTargets(); }
+  catch (e) { toast('删除失败：' + errMsg(e)); }
+};
+
+window.testTarget = async (id, name) => {
+  toast('正在测试「' + (name || '目标') + '」…');
+  const btn = document.querySelector(`button[onclick="testTarget(${id}${name ? ", '" + name.replace(/'/g, "\\'") + "'" : ''})"]`);
+  if (btn) { btn.disabled = true; btn.textContent = '测试中…'; }
+  try {
+    const d = await api(`/api/admin/targets/${id}/test`, { method: 'POST' });
+    const lines = d.results.map(r => {
+      const label = r.layer === 'inference' ? '推理' : '连通';
+      const modelTag = r.model ? ` [${escapeHtml(r.model)}]` : '';
+      return `<div class="layer">${label}${modelTag}：${r.ok ? '✅ 通过' : '❌ 失败'} · ${fmtSec(r.latency_ms)}${r.ttft_ms != null ? ' · TTFT ' + fmtSec(r.ttft_ms) : ''}${r.http_status ? ' · HTTP ' + r.http_status : ''}${r.error ? ' · ' + escapeHtml(r.error) : ''}${r.detail ? '<div class="muted mono">' + escapeHtml(r.detail) + '</div>' : ''}</div>`;
+    }).join('');
+    const el = document.createElement('div');
+    el.className = 'test-result'; el.innerHTML = lines;
+    el.style.background = 'var(--panel2)'; el.style.border = '1px solid var(--border)'; el.style.borderRadius = '8px'; el.style.padding = '10px';
+    const cur = document.querySelector('#tab-targets .panel:last-child .test-result');
+    if (cur) cur.remove();
+    document.querySelector('#tab-targets .panel:last-child').appendChild(el);
+  } catch (e) { toast('测试失败：' + errMsg(e)); }
+};
+
+// ---------- 探测历史 ----------
+let checkPage = 1, checkTotal = 0;
+async function loadChecks() {
+  const tid = $('checks-target').value;
+  if (!tid) return;
+  const size = +$('checks-size').value;
+  const d = await api(`/api/admin/checks?target_id=${tid}&page=${checkPage}&page_size=${size}`);
+  checkTotal = d.total;
+  $('checks-table').innerHTML = d.checks.length ? `<table>
+    <tr><th>层</th><th>模型</th><th>结果</th><th>延迟</th><th>TTFT</th><th>HTTP</th><th>错误</th><th>时间</th></tr>
+    ${d.checks.map(c => `<tr>
+      <td data-label="层">${c.layer === 'inference' ? '推理' : '连通'}</td>
+      <td class="c-main mono">${escapeHtml(c.model || '—')}</td>
+      <td class="c-badge"><span class="badge ${c.ok ? 'ok' : 'fail'}">${c.ok ? '通过' : '失败'}</span></td>
+      <td data-label="延迟">${fmtSec(c.latency_ms)}</td>
+      <td data-label="TTFT">${fmtSec(c.ttft_ms)}</td>
+      <td data-label="HTTP">${c.http_status ?? '—'}</td>
+      <td data-label="错误" class="mono">${escapeHtml(c.error || (c.detail || '—'))}</td>
+      <td data-label="时间">${fmtTime(c.checked_at)}</td></tr>`).join('')}</table>` : '<div class="empty">暂无探测记录</div>';
+  const pages = Math.max(1, Math.ceil(d.total / size));
+  $('page-info').textContent = `第 ${d.page} / ${pages} 页 · 共 ${d.total} 条`;
+  $('prev-page').disabled = d.page <= 1;
+  $('next-page').disabled = d.page >= pages;
+}
+$('checks-target').onchange = () => { checkPage = 1; loadChecks(); };
+$('checks-size').onchange = () => { checkPage = 1; loadChecks(); };
+$('prev-page').onclick = () => { if (checkPage > 1) { checkPage--; loadChecks(); } };
+$('next-page').onclick = () => { const pages = Math.max(1, Math.ceil(checkTotal / +$('checks-size').value)); if (checkPage < pages) { checkPage++; loadChecks(); } };
+
+// ---------- 故障事件 ----------
+async function loadIncidents() {
+  const d = await api('/api/admin/incidents');
+  $('incident-table').innerHTML = d.incidents.length ? `<table>
+    <tr><th>目标</th><th>状态</th><th>开始</th><th>结束</th><th>持续</th><th>备注</th><th>操作</th></tr>
+    ${d.incidents.map(i => `<tr>
+      <td class="c-main">${escapeHtml(i.target_name)}</td>
+      <td class="c-badge"><span class="badge ${i.status === 'ongoing' ? (i.severity === 'down' ? 'down' : 'partial') : (i.status === 'maintenance' ? 'maintenance' : 'up')}">
+        ${i.status === 'ongoing' ? (i.severity === 'down' ? '故障中' : '部分故障') : (i.status === 'maintenance' ? '维护中' : '已解决')}</span></td>
+      <td data-label="开始">${fmtTime(i.started_at)}</td>
+      <td data-label="结束">${fmtTime(i.ended_at)}</td>
+      <td data-label="持续">${i.duration_seconds ?? '—'} s</td>
+      <td data-label="备注" style="color:var(--red)">${escapeHtml(i.note || '—')}</td>
+      <td class="c-actions">
+        ${i.ended_at ? '' : `<button class="op-btn" onclick="resolveIncident(${i.id})">${i.status === 'maintenance' ? '结束维护' : '标记恢复'}</button>`}
+        <button class="op-btn" onclick="noteIncident(${i.id})">备注</button>
+        <button class="op-btn" onclick="deleteIncident(${i.id})" style="color:var(--red)">删除</button>
+      </td></tr>`).join('')}</table>` : '<div class="empty">暂无事件</div>';
+}
+
+window.resolveIncident = async (id) => {
+  try { await api('/api/admin/incidents/' + id, { method: 'PUT', body: JSON.stringify({ status: 'resolved' }) }); toast('已结束'); loadIncidents(); }
+  catch (e) { toast('操作失败：' + errMsg(e)); }
+};
+
+window.noteIncident = async (id) => {
+  const note = prompt('输入备注：');
+  if (note === null) return;
+  try { await api('/api/admin/incidents/' + id, { method: 'PUT', body: JSON.stringify({ note }) }); toast('已保存'); loadIncidents(); }
+  catch (e) { toast('操作失败：' + errMsg(e)); }
+};
+
+window.deleteIncident = async (id) => {
+  if (!confirm('确定删除该故障事件？')) return;
+  try { await api('/api/admin/incidents/' + id, { method: 'DELETE' }); toast('已删除'); loadIncidents(); }
+  catch (e) { toast('操作失败：' + errMsg(e)); }
+};
+
+$('inc-create-btn').onclick = async () => {
+  try {
+    const body = { target_id: +$('inc-target').value, status: $('inc-type').value, note: $('inc-note').value.trim() };
+    if (!body.target_id) throw new Error('请先创建监测目标');
+    await api('/api/admin/incidents', { method: 'POST', body: JSON.stringify(body) });
+    $('inc-note').value = ''; toast('事件已创建'); loadIncidents();
+  } catch (e) { toast('创建失败：' + errMsg(e)); }
+};
+
+// ---------- 设置 ----------
+async function loadSettings() {
+  const d = await api('/api/admin/settings');
+  $('s-title').value = d.site_title; $('s-announce').value = d.announcement || '';
+  $('s-tg-token').value = d.telegram_bot_token || ''; $('s-tg-chat').value = d.telegram_chat_id || '';
+  $('s-bark').value = d.bark_url || '';
+  $('s-retention').value = d.checks_retention_days || 7;
+  $('s-alert-fails').value = d.model_alert_fails || 3;
+  $('s-suspend-fails').value = d.model_suspend_fails || 5;
+  $('s-retry-sec').value = d.suspend_retry_seconds !== undefined ? d.suspend_retry_seconds : 1800;
+  // 同步加目标表单的占位符（显示全局默认）
+  $('f-suspend-fails').placeholder = '默认 ' + (d.model_suspend_fails || 5);
+  $('f-retry-sec').placeholder = '默认 ' + (d.suspend_retry_seconds !== undefined ? d.suspend_retry_seconds : 1800);
+}
+$('save-settings').onclick = async () => {
+  try {
+    await api('/api/admin/settings', { method: 'PUT', body: JSON.stringify({
+      site_title: $('s-title').value.trim() || 'AI Model Status',
+      announcement: $('s-announce').value.trim(),
+      telegram_bot_token: $('s-tg-token').value.trim(),
+      telegram_chat_id: $('s-tg-chat').value.trim(),
+      bark_url: $('s-bark').value.trim(),
+      checks_retention_days: Math.max(1, Math.min(90, +$('s-retention').value || 7)),
+      model_alert_fails: Math.max(1, Math.min(50, +$('s-alert-fails').value || 3)),
+      model_suspend_fails: Math.max(1, Math.min(50, +$('s-suspend-fails').value || 5)),
+      suspend_retry_seconds: $('s-retry-sec').value === '' ? 1800 : Math.max(0, Math.min(86400, +$('s-retry-sec').value || 0)),
+    })});
+    $('settings-msg').className = 'ok-text'; $('settings-msg').textContent = '✓ 已保存';
+    // 同步新增目标表单的占位符（全局默认可能已变）
+    $('f-suspend-fails').placeholder = '默认 ' + (Math.max(1, Math.min(50, +$('s-suspend-fails').value || 5)));
+    $('f-retry-sec').placeholder = '默认 ' + ($('s-retry-sec').value === '' ? 1800 : Math.max(0, Math.min(86400, +$('s-retry-sec').value || 0)));
+    setTimeout(() => $('settings-msg').textContent = '', 3000);
+  } catch (e) { $('settings-msg').className = 'err-text'; $('settings-msg').textContent = '保存失败：' + errMsg(e); }
+};
+
+async function loadAll() {
+  try { await loadOverview(); } catch (e) { toast('加载失败：' + errMsg(e)); }
+  try { await loadTargets(); } catch (e) { toast('加载失败：' + errMsg(e)); }
+  try { await resetForm(); } catch (e) { toast('加载失败：' + errMsg(e)); }  // 初始化新增表单默认值/placeholder
+}
+</script>
+<script>
+// ---------- 主题切换 ----------
+const $theme = (id) => document.getElementById(id);
+const THEMES = ['system', 'dark', 'light'];
+const THEME_TEXTS = { system: '系统', dark: '暗色', light: '亮色' };
+const saved = localStorage.getItem('status_theme');
+const docEl = document.documentElement;
+if (saved && THEMES.includes(saved)) docEl.setAttribute('data-theme', saved);
+else docEl.setAttribute('data-theme', 'system');
+function applyTheme(name) {
+  docEl.setAttribute('data-theme', name);
+  const btn = $theme('theme-btn');
+  if (btn) btn.textContent = THEME_TEXTS[name];
+}
+const tb = $theme('theme-btn');
+if (tb) {
+  tb.onclick = () => {
+    const cur = docEl.getAttribute('data-theme');
+    const next = THEMES[(THEMES.indexOf(cur) + 1) % 3];
+    applyTheme(next);
+    localStorage.setItem('status_theme', next);
+  };
+}
+applyTheme(docEl.getAttribute('data-theme'));
+window.addEventListener('storage', (e) => {
+  if (e.key === 'status_theme' && e.newValue && THEMES.includes(e.newValue)) {
+    applyTheme(e.newValue);
+  }
+});
+</script>
+</body>
+</html>
