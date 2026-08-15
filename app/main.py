@@ -402,6 +402,20 @@ class TargetIn(BaseModel):
     suspend_retry_seconds: int | None = Field(default=None, ge=0, le=86400)  # 0 = 停测后每轮都探测
     enabled: bool = True
     show_on_status: bool = True
+    extra_body: str = Field(default="", max_length=2048,
+                            description="附加请求体参数（JSON 对象字符串，如 {\"reasoning\": {\"context\": \"auto\"}}）")
+
+
+def _validate_extra_body(raw: str) -> None:
+    """extra_body 必须是合法的 JSON 对象；空串合法。"""
+    if not raw.strip():
+        return
+    try:
+        eb = json.loads(raw)
+    except Exception:
+        raise HTTPException(400, "extra_body 必须是合法的 JSON 字符串")
+    if not isinstance(eb, dict):
+        raise HTTPException(400, "extra_body 必须是 JSON 对象")
 
 
 def _target_out(row: sqlite3.Row) -> dict:
@@ -428,6 +442,7 @@ def admin_targets():
 async def admin_create_target(body: TargetIn):
     if body.interval_seconds < 60:
         raise HTTPException(400, "探测间隔过短，必须大于等于 60 秒")
+    _validate_extra_body(body.extra_body)
     conn = core.get_conn()
     try:
         now = core.now_iso()
@@ -435,14 +450,15 @@ async def admin_create_target(body: TargetIn):
             "INSERT INTO targets(name,group_name,type,base_url,api_key_enc,model_name,"
             " probe_mode,interval_seconds,timeout_seconds,fail_threshold,recover_threshold,"
             " suspend_fails,suspend_retry_seconds,"
-            " enabled,show_on_status,status,created_at,updated_at)"
-            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            " enabled,show_on_status,extra_body,status,created_at,updated_at)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (body.name, body.group_name, body.type, body.base_url,
              core.encrypt_api_key(body.api_key), body.model_name,
              body.probe_mode, body.interval_seconds, body.timeout_seconds,
              body.fail_threshold, body.recover_threshold,
              body.suspend_fails, body.suspend_retry_seconds,
-             1 if body.enabled else 0, 1 if body.show_on_status else 0, "unknown", now, now))
+             1 if body.enabled else 0, 1 if body.show_on_status else 0,
+             body.extra_body.strip(), "unknown", now, now))
         conn.commit()
         tid = cur.lastrowid
         if tid:
@@ -462,6 +478,7 @@ async def admin_create_target(body: TargetIn):
 async def admin_update_target(tid: int, body: TargetIn):
     if body.interval_seconds < 60:
         raise HTTPException(400, "探测间隔过短，必须大于等于 60 秒")
+    _validate_extra_body(body.extra_body)
     conn = core.get_conn()
     try:
         row = conn.execute("SELECT * FROM targets WHERE id=?", (tid,)).fetchone()
@@ -474,12 +491,13 @@ async def admin_update_target(tid: int, body: TargetIn):
             "UPDATE targets SET name=?,group_name=?,type=?,base_url=?,api_key_enc=?,model_name=?,"
             " probe_mode=?,interval_seconds=?,timeout_seconds=?,fail_threshold=?,recover_threshold=?,"
             " suspend_fails=?,suspend_retry_seconds=?,"
-            " enabled=?,show_on_status=?,auto_disabled=0,updated_at=? WHERE id=?",
+            " enabled=?,show_on_status=?,extra_body=?,auto_disabled=0,updated_at=? WHERE id=?",
             (body.name, body.group_name, body.type, body.base_url, enc, body.model_name,
              body.probe_mode, body.interval_seconds, body.timeout_seconds,
              body.fail_threshold, body.recover_threshold,
              body.suspend_fails, body.suspend_retry_seconds,
-             1 if body.enabled else 0, 1 if body.show_on_status else 0, core.now_iso(), tid))
+             1 if body.enabled else 0, 1 if body.show_on_status else 0,
+             body.extra_body.strip(), core.now_iso(), tid))
         conn.commit()
     finally:
         conn.close()

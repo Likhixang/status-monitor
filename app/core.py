@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS targets (
     show_on_status INTEGER NOT NULL DEFAULT 1,
     auto_disabled INTEGER NOT NULL DEFAULT 0,
     sort_order INTEGER NOT NULL DEFAULT 0,
+    extra_body TEXT DEFAULT '',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -139,6 +140,8 @@ def init_db() -> None:
         conn.execute("ALTER TABLE targets ADD COLUMN show_on_status INTEGER NOT NULL DEFAULT 1")
     if "sort_order" not in tcols:
         conn.execute("ALTER TABLE targets ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0")
+    if "extra_body" not in tcols:
+        conn.execute("ALTER TABLE targets ADD COLUMN extra_body TEXT DEFAULT ''")
     # 旧库迁移：incidents.severity 列（事件等级：partial 部分故障 / down 异常）
     icols = {r["name"] for r in conn.execute("PRAGMA table_info(incidents)").fetchall()}
     if "severity" not in icols:

@@ -401,6 +401,10 @@ if ('serviceWorker' in navigator) {
           <div class="field half"><label>试探间隔（秒，0 = 停测后每轮都探测，留空用全局默认）</label><input id="f-retry-sec" type="number" min="0" max="86400" placeholder="默认 1800"></div>
         </div>
         <div class="field"><label><input type="checkbox" id="f-enabled" checked style="width:auto"> 启用监测</label></div>
+        <div class="field"><label>附加请求体参数（JSON，可选）</label>
+          <textarea id="f-extra-body" rows="2" style="font-family:monospace;font-size:12px"
+            placeholder='{"reasoning": {"context": "auto"}}'></textarea>
+        </div>
         <div class="field"><label class="switch-label" style="justify-content:flex-start">在 status 页显示
             <span class="switch"><input type="checkbox" id="f-show-status" checked><span class="slider"></span></span>
         </label></div>
@@ -838,6 +842,7 @@ function fillForm(x) {
   $('f-fail').value = x.fail_threshold; $('f-recover').value = x.recover_threshold;
   $('f-suspend-fails').value = x.suspend_fails ?? '';
   $('f-retry-sec').value = x.suspend_retry_seconds ?? '';
+  $('f-extra-body').value = x.extra_body || '';
   $('f-enabled').checked = x.enabled;
   $('f-show-status').checked = x.show_on_status ?? true;
   $('form-title').textContent = '编辑目标：' + x.name;
@@ -869,6 +874,7 @@ async function resetForm() {
   $('f-key').placeholder = 'sk-...';
   $('f-interval').value = 120; $('f-timeout').value = 15; $('f-fail').value = 3; $('f-recover').value = 3;
   $('f-suspend-fails').value = ''; $('f-retry-sec').value = '';
+  $('f-extra-body').value = '';
   // 从全局设置读取停测阈值/试探间隔默认值，显示在 placeholder
   try {
     const d = await api('/api/admin/settings');
@@ -896,6 +902,7 @@ function collectForm() {
     suspend_retry_seconds: $('f-retry-sec').value !== '' ? +$('f-retry-sec').value : null,
     enabled: $('f-enabled').checked,
     show_on_status: $('f-show-status').checked,
+    extra_body: $('f-extra-body').value.trim(),
   };
   // API Key：编辑时输入框为空（placeholder 显示原 key 掩码），留空 = 保留原 key；
   // 只有用户粘贴了新 key 才提交。含 "..." 防御掩码误提交。

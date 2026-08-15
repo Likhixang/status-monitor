@@ -65,6 +65,28 @@ def build_v1_url(base_url: str, path: str) -> str:
     return base + "/v1" + path
 
 
+def _merge_extra_body(body: dict, target: dict) -> dict:
+    """合并 target.extra_body（JSON 对象）到请求体；非法 JSON 或空串则原样返回。
+
+    stream 由探测机制决定（SSE 解析依赖它），禁止被 extra_body 覆盖。
+    """
+    raw = (target.get("extra_body") or "").strip()
+    if not raw:
+        return body
+    try:
+        extra = json.loads(raw)
+    except Exception:
+        return body
+    if not isinstance(extra, dict):
+        return body
+    out = dict(body)
+    for k, v in extra.items():
+        if k == "stream":
+            continue
+        out[k] = v
+    return out
+
+
 async def probe_connectivity(client: httpx.AsyncClient, target: dict, timeout: float) -> dict:
     t0 = time.monotonic()
     try:
@@ -113,6 +135,7 @@ async def probe_inference_stream(client: httpx.AsyncClient, target: dict,
         body = {"model": model,
                 "messages": [{"role": "user", "content": "ping"}],
                 "max_tokens": 2, "stream": True}
+    body = _merge_extra_body(body, target)
     try:
         async with client.stream("POST", url, json=body, headers=headers,
                                  timeout=timeout) as r:
@@ -242,6 +265,7 @@ async def probe_inference(client: httpx.AsyncClient, target: dict, timeout: floa
             body = {"model": model,
                     "messages": [{"role": "user", "content": "ping"}],
                     "max_tokens": 2, "stream": False}
+        body = _merge_extra_body(body, target)
         r = await client.post(url, json=body, headers=headers, timeout=timeout)
         latency = int((time.monotonic() - t0) * 1000)
         err = classify_error(r.status_code, None)
