@@ -423,6 +423,7 @@ class Engine:
         explicit = [m.strip() for m in (t.get("model_name") or "").split(",")
                     if m.strip()]
         if explicit:
+            self._mark_explicit_removed(t["id"], explicit)
             return explicit, "explicit"
         try:
             url = build_v1_url(t["base_url"], "/models")
@@ -465,6 +466,40 @@ class Engine:
             conn.execute(
                 "UPDATE targets SET model_snapshot=? WHERE id=?",
                 (json.dumps(models), target_id))
+            conn.commit()
+        finally:
+            conn.close()
+
+    def _mark_explicit_removed(self, target_id: int, explicit: list[str]) -> None:
+        """显式模式：把 checks 里有记录但不在显式列表的模型标记为移除。
+
+        复用动态模式的 model_not_found 移除机制——展示层 main.py 的 removed
+        过滤会自动隐藏这些模型。只写标记、不删数据；标记记录不进探测
+        results，不触发任何通知（notify 对 model_not_found 显式排除，
+        不计故障、不进事件原因）。同一模型只写一次，避免每轮重复插入。
+        """
+        conn = core.get_conn()
+        try:
+            rows = conn.execute(
+                "SELECT DISTINCT model FROM checks"
+                " WHERE target_id=? AND layer='inference' AND model != ''",
+                (target_id,)).fetchall()
+            seen = {r["model"] for r in rows} - set(explicit)
+            if not seen:
+                return
+            now = core.now_iso()
+            for m in seen:
+                last = conn.execute(
+                    "SELECT error FROM checks WHERE target_id=? AND layer='inference'"
+                    " AND model=? ORDER BY id DESC LIMIT 1",
+                    (target_id, m)).fetchone()
+                if last and last["error"] == "model_not_found":
+                    continue  # 已标记，避免每轮重复插入
+                conn.execute(
+                    "INSERT INTO checks(target_id,layer,model,ok,latency_ms,http_status,"
+                    " error,detail,checked_at) VALUES(?,?,?,?,?,?,?,?,?)",
+                    (target_id, "inference", m, 0, None, None, "model_not_found",
+                     "模型不在显式列表，自动剔除显示", now))
             conn.commit()
         finally:
             conn.close()
