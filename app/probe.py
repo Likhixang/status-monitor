@@ -124,7 +124,7 @@ async def probe_inference_stream(client: httpx.AsyncClient, target: dict,
                    "content-type": "application/json"}
         if target.get("api_key"):
             headers["x-api-key"] = target["api_key"]
-        body = {"model": model, "max_tokens": 2,
+        body = {"model": model, "max_tokens": 64,
                 "messages": [{"role": "user", "content": "ping"}],
                 "stream": True}
     else:
@@ -134,7 +134,7 @@ async def probe_inference_stream(client: httpx.AsyncClient, target: dict,
             headers["authorization"] = f"Bearer {target['api_key']}"
         body = {"model": model,
                 "messages": [{"role": "user", "content": "ping"}],
-                "max_tokens": 2, "stream": True}
+                "max_tokens": 64, "stream": True}
     body = _merge_extra_body(body, target)
     try:
         async with client.stream("POST", url, json=body, headers=headers,
@@ -255,7 +255,7 @@ async def probe_inference(client: httpx.AsyncClient, target: dict, timeout: floa
                        "content-type": "application/json"}
             if target.get("api_key"):
                 headers["x-api-key"] = target["api_key"]
-            body = {"model": model, "max_tokens": 2,
+            body = {"model": model, "max_tokens": 64,
                     "messages": [{"role": "user", "content": "ping"}]}
         else:
             url = build_v1_url(target["base_url"], "/chat/completions")
@@ -264,7 +264,7 @@ async def probe_inference(client: httpx.AsyncClient, target: dict, timeout: floa
                 headers["authorization"] = f"Bearer {target['api_key']}"
             body = {"model": model,
                     "messages": [{"role": "user", "content": "ping"}],
-                    "max_tokens": 2, "stream": False}
+                    "max_tokens": 64, "stream": False}
         body = _merge_extra_body(body, target)
         r = await client.post(url, json=body, headers=headers, timeout=timeout)
         latency = int((time.monotonic() - t0) * 1000)
