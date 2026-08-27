@@ -408,6 +408,9 @@ if ('serviceWorker' in navigator) {
         <div class="field"><label class="switch-label" style="justify-content:flex-start">在 status 页显示
             <span class="switch"><input type="checkbox" id="f-show-status" checked><span class="slider"></span></span>
         </label></div>
+        <div class="field"><label class="switch-label" style="justify-content:flex-start">异常通知（关闭后该目标故障/恢复均不推送告警，仅状态页展示）
+            <span class="switch"><input type="checkbox" id="f-notify" checked><span class="slider"></span></span>
+        </label></div>
         <div class="row">
           <button class="primary" id="save-btn">保存</button>
           <button id="cancel-btn" style="display:none">取消编辑</button>
@@ -845,6 +848,7 @@ function fillForm(x) {
   $('f-extra-body').value = x.extra_body || '';
   $('f-enabled').checked = x.enabled;
   $('f-show-status').checked = x.show_on_status ?? true;
+  $('f-notify').checked = x.notify_enabled ?? true;
   $('form-title').textContent = '编辑目标：' + x.name;
   $('cancel-btn').style.display = 'inline-block';
   window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
@@ -883,6 +887,7 @@ async function resetForm() {
   } catch {}
   $('f-enabled').checked = true;
   $('f-show-status').checked = true;
+  $('f-notify').checked = true;
   $('form-title').textContent = '新增目标';
   $('cancel-btn').style.display = 'none';
 }
@@ -902,6 +907,7 @@ function collectForm() {
     suspend_retry_seconds: $('f-retry-sec').value !== '' ? +$('f-retry-sec').value : null,
     enabled: $('f-enabled').checked,
     show_on_status: $('f-show-status').checked,
+    notify_enabled: $('f-notify').checked,
     extra_body: $('f-extra-body').value.trim(),
   };
   // API Key：编辑时输入框为空（placeholder 显示原 key 掩码），留空 = 保留原 key；

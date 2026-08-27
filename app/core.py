@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS targets (
     suspend_fails INTEGER,
     suspend_retry_seconds INTEGER,
     show_on_status INTEGER NOT NULL DEFAULT 1,
+    notify_enabled INTEGER NOT NULL DEFAULT 1,
     auto_disabled INTEGER NOT NULL DEFAULT 0,
     sort_order INTEGER NOT NULL DEFAULT 0,
     extra_body TEXT DEFAULT '',
@@ -138,6 +139,8 @@ def init_db() -> None:
         conn.execute("ALTER TABLE targets ADD COLUMN suspend_retry_seconds INTEGER")
     if "show_on_status" not in tcols:
         conn.execute("ALTER TABLE targets ADD COLUMN show_on_status INTEGER NOT NULL DEFAULT 1")
+    if "notify_enabled" not in tcols:
+        conn.execute("ALTER TABLE targets ADD COLUMN notify_enabled INTEGER NOT NULL DEFAULT 1")
     if "sort_order" not in tcols:
         conn.execute("ALTER TABLE targets ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0")
     if "extra_body" not in tcols:

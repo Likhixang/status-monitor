@@ -672,6 +672,9 @@ class Engine:
             # 事件只在 down（连续 fail_threshold 次全失败坐实）时开立——瞬时 partial
             # 抖动（如单模型一次超时）不产生事件记录。恢复通知仅在有关事件时发，
             # 无事件的 partial→up 视为抖动静默处理，不推无头恢复。
+            # 异常通知开关：notify_enabled=0 时该目标不推送任何自动告警/恢复通知，
+            # 但状态机与事件记录照常进行（仅静默通知，不影响监测/展示）。
+            notify_on = bool(int(t.get("notify_enabled") or 0))
             if status == "down" and status_before != "down":
                 # up/unknown/partial → down：开事件 + 告警
                 existing = conn.execute(
@@ -686,7 +689,7 @@ class Engine:
                         "INSERT INTO incidents(target_id,started_at,status,severity,note,created_at)"
                         " VALUES(?,?,?,?,?,?)",
                         (t["id"], core.now_iso(), "ongoing", status, err_text, core.now_iso()))
-                if not in_maintenance:
+                if not in_maintenance and notify_on:
                     asyncio.create_task(
                         notify.send_alert(t["name"], "down", err_text, target_id=t["id"]))
             elif status == "up" and status_before in ("partial", "down"):
@@ -699,16 +702,16 @@ class Engine:
                         "UPDATE incidents SET ended_at=?, duration_seconds=?, status='resolved'"
                         " WHERE id=?",
                         (core.now_iso(), dur, row["id"]))
-                    if not in_maintenance:
+                    if not in_maintenance and notify_on:
                         asyncio.create_task(
                             notify.send_alert(t["name"], "up", None, target_id=t["id"]))
             # 模型级通知发送：故障无条件发（🟡 列出具体模型错误）；
             # 恢复仅在目标未整体恢复（partial/down，部分模型恢复）时发——
             # 整体恢复（→up）由上方目标级 up 通知一条覆盖，避免重复推送。
-            if new_failed and not in_maintenance:
+            if new_failed and not in_maintenance and notify_on:
                 asyncio.create_task(
                     notify.send_model_alert(t["name"], new_failed, target_id=t["id"]))
-            if new_recovered and status != "up" and not in_maintenance:
+            if new_recovered and status != "up" and not in_maintenance and notify_on:
                 asyncio.create_task(
                     notify.send_model_recovered(t["name"], new_recovered,
                                                 target_id=t["id"]))
