@@ -155,8 +155,9 @@ def _model_stats(conn: sqlite3.Connection, target_id: int, model: str,
     if rows:
         ok_n = sum(r["ok"] for r in rows)
         out["ok_count"] = ok_n
-        out["total_count"] = len(rows)
-        out["uptime"] = round(100.0 * ok_n / len(rows), 2)
+        # total_count = 窗口期望探测格数（n_bars）：灰条（长时间无探测）计入分母，
+        # 与下方由色块推导的 uptime 口径一致，避免"宕机后恢复"显示 100% 可用
+        out["total_count"] = n_bars
 
     # 色块条：每格 = bar_sec，绿=全过且不慢，黄=部分失败或慢，红=全败，灰=无数据
     segs: list[list[tuple[int, int]]] = [[] for _ in range(n_bars)]
@@ -180,13 +181,29 @@ def _model_stats(conn: sqlite3.Connection, target_id: int, model: str,
             else:
                 out["bars"].append(0.5)          # 黄：部分失败或偏慢
 
+    # 窗口可用率：由色块加权推导。灰条（窗口内长时间无探测）计为不可用，
+    # 避免宕机/停测后刚恢复被误显示为 100% 可用；仅最右（最新）一格若为灰条，
+    # 视为当前区间尚未完成探测，不计入分母。
+    if rows:
+        bars = out["bars"]
+        effective = bars[:-1] if bars and bars[-1] is None else bars
+        denom = len(effective)
+        if denom:
+            out["uptime"] = round(
+                100.0 * sum(0.0 if b is None else b for b in effective) / denom, 2)
+
     # 最新一次探测（成败皆取）：状态 + 最近探测时间
     r = conn.execute(
         "SELECT ok, latency_ms, ttft_ms, checked_at FROM checks"
         " WHERE target_id=? AND layer='inference' AND model=?"
         " ORDER BY id DESC LIMIT 1", (target_id, model)).fetchone()
     if r:
-        out["status"] = "up" if r["ok"] else "down"
+        # 状态防陈旧：最近探测已超过 2 个探测周期（长时间灰条/停测无数据）时，
+        # 不再沿用旧结果标"可用"，改标"无近期数据"，避免长时间灰条被异常标为可用。
+        if time.time() - core.parse_iso(r["checked_at"]) > 2 * bar_sec:
+            out["status"] = "unknown"
+        else:
+            out["status"] = "up" if r["ok"] else "down"
         out["last_check_at"] = r["checked_at"]
         # 首字延迟：仅当最新一次探测成功才展示（失败/超时的耗时不是首字）
         if r["ok"]:
@@ -272,16 +289,14 @@ def _group_targets(conn: sqlite3.Connection, include_paused: bool = False) -> di
         in_maintenance = t["id"] in maintenance_ids
         ok_n = sum(1 for i in model_items if i["status"] == "up")
         down_n = sum(1 for i in model_items if i["status"] == "down")
-        # 渠道可用率：窗口内该渠道全部模型探测合并
-        uptime = None
-        r = conn.execute(
-            "SELECT COUNT(*) AS n, COALESCE(SUM(ok),0) AS ok FROM checks"
-            " WHERE target_id=? AND layer='inference' AND model != ''"
-            " AND checked_at >= ?",
-            (t["id"], time.strftime("%Y-%m-%d %H:%M:%S",
-                                    time.gmtime(time.time() - WINDOW_SECONDS)))).fetchone()
-        if r["n"]:
-            uptime = round(100.0 * r["ok"] / r["n"], 2)
+        # 渠道可用率：聚合各模型窗口可用率（模型级已把灰条计为不可用，见 _model_stats）。
+        # 无数据模型按 0（不可用）计入；全部无数据时显示 —。与模型色块/百分比口径一致，
+        # 避免宕机/停测后刚恢复被误显示为 100% 可用。
+        ups = [i["uptime"] for i in model_items]
+        if any(u is not None for u in ups):
+            uptime = round(sum(u if u is not None else 0.0 for u in ups) / len(ups), 2)
+        else:
+            uptime = None
 
         if in_maintenance:
             status = "maintenance"
@@ -334,13 +349,15 @@ def api_status(include_paused: bool = False):
             " AND i.ended_at >= datetime('now','-2 hours')"
             " ORDER BY i.started_at DESC LIMIT 50").fetchall()
 
-        # 全局 KPI
-        r = conn.execute(
-            "SELECT COUNT(*) AS n, COALESCE(SUM(ok),0) AS ok FROM checks"
-            " WHERE layer='inference' AND model != '' AND checked_at >= ?",
-            (time.strftime("%Y-%m-%d %H:%M:%S",
-                           time.gmtime(time.time() - WINDOW_SECONDS)),)).fetchone()
-        uptime = round(100.0 * r["ok"] / r["n"], 2) if r["n"] else None
+        # 全局 KPI：聚合所有未停测渠道模型的窗口可用率（灰条计不可用，与渠道/模型
+        # 口径一致），避免宕机后刚恢复被误显示为高可用率。
+        ups = [m["uptime"]
+               for items in data["groups"].values()
+               for it in items if not it["paused"] for m in it["models"]]
+        if any(u is not None for u in ups):
+            uptime = round(sum(u if u is not None else 0.0 for u in ups) / len(ups), 2)
+        else:
+            uptime = None
         rounds = conn.execute(
             "SELECT COUNT(*) AS n FROM checks WHERE layer='inference' AND model != ''"
         ).fetchone()["n"]
