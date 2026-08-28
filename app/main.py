@@ -461,7 +461,7 @@ def admin_targets():
 @app.post("/api/admin/targets", dependencies=[Depends(require_admin)])
 async def admin_create_target(body: TargetIn):
     if body.interval_seconds < 60:
-        raise HTTPException(400, "探测间隔过短，必须大于等于 60 秒")
+        raise HTTPException(400, "常规探测间隔过短，必须大于等于 60 秒")
     _validate_extra_body(body.extra_body)
     conn = core.get_conn()
     try:
@@ -498,7 +498,7 @@ async def admin_create_target(body: TargetIn):
 @app.put("/api/admin/targets/{tid}", dependencies=[Depends(require_admin)])
 async def admin_update_target(tid: int, body: TargetIn):
     if body.interval_seconds < 60:
-        raise HTTPException(400, "探测间隔过短，必须大于等于 60 秒")
+        raise HTTPException(400, "常规探测间隔过短，必须大于等于 60 秒")
     _validate_extra_body(body.extra_body)
     conn = core.get_conn()
     try:

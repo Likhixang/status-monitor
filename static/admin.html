@@ -391,14 +391,14 @@ if ('serviceWorker' in navigator) {
           <div class="field"><label>模型名（逗号分隔多个，留空自动读取 /models）</label><input id="f-model" placeholder="deepseek-chat,deepseek-reasoner 或留空"></div>
         </div>
         <div class="row">
-          <div class="field half"><label>间隔（秒，最短 60）</label><input id="f-interval" type="number" value="120" min="60"></div>
+          <div class="field half"><label>常规探测间隔（秒，最短 60）</label><input id="f-interval" type="number" value="120" min="60"></div>
           <div class="field half"><label>超时（秒）</label><input id="f-timeout" type="number" value="15" min="1"></div>
           <div class="field half"><label>失败阈值</label><input id="f-fail" type="number" value="3" min="1"></div>
           <div class="field half"><label>恢复阈值</label><input id="f-recover" type="number" value="3" min="1"></div>
         </div>
         <div class="row">
           <div class="field half"><label>停测阈值（连续失败次数，留空用全局默认）</label><input id="f-suspend-fails" type="number" min="1" max="50" placeholder="默认 5"></div>
-          <div class="field half"><label>试探间隔（秒，0 = 停测后每轮都探测，留空用全局默认）</label><input id="f-retry-sec" type="number" min="0" max="86400" placeholder="默认 1800"></div>
+          <div class="field half"><label>停测后试探间隔（秒，0 = 停测后每轮都探测，留空用全局默认）</label><input id="f-retry-sec" type="number" min="0" max="86400" placeholder="默认 1800"></div>
         </div>
         <div class="field"><label><input type="checkbox" id="f-enabled" checked style="width:auto"> 启用监测</label></div>
         <div class="field"><label>附加请求体参数（JSON，可选）</label>
@@ -896,12 +896,14 @@ $('cancel-btn').onclick = resetForm;
 function collectForm() {
   if (!$('f-name').value.trim()) throw new Error('名称必填');
   if (!$('f-url').value.trim()) throw new Error('Base URL 必填');
+  const interval = +$('f-interval').value;
+  if (!interval || interval < 60) throw new Error('常规探测间隔必须大于等于 60 秒');
   const body = {
     name: $('f-name').value.trim(), group_name: $('f-group').value.trim() || '默认',
     type: $('f-type').value, base_url: $('f-url').value.trim(),
     model_name: $('f-model').value.trim(),
     probe_mode: $('f-mode').value,
-    interval_seconds: +$('f-interval').value, timeout_seconds: +$('f-timeout').value,
+    interval_seconds: interval, timeout_seconds: +$('f-timeout').value,
     fail_threshold: +$('f-fail').value, recover_threshold: +$('f-recover').value,
     suspend_fails: $('f-suspend-fails').value ? +$('f-suspend-fails').value : null,
     suspend_retry_seconds: $('f-retry-sec').value !== '' ? +$('f-retry-sec').value : null,

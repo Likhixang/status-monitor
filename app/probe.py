@@ -323,8 +323,9 @@ class Engine:
                 # 自动禁用目标按试探间隔轻量检查（/models 是否恢复），不用原探测间隔
                 if t["auto_disabled"]:
                     rr_val = t.get("suspend_retry_seconds")
-                    interval = int(rr_val) if rr_val is not None else int(
+                    retry_sec = int(rr_val) if rr_val is not None else int(
                         core.get_setting("suspend_retry_seconds", "1800"))
+                    interval = retry_sec if retry_sec > 0 else t["interval_seconds"]
                 else:
                     interval = t["interval_seconds"]
                 # 绝对网格对齐：探测锚定在绝对时钟网格上（120s → 整 2 分钟）。
@@ -550,7 +551,7 @@ class Engine:
                                     (t["id"], m)).fetchone()
                                 if not (last and last["error"] == "model_not_found"):
                                     last_ts = core.parse_iso(last["checked_at"]) if last else 0
-                                    if now - last_ts < retry_seconds:
+                                    if retry_seconds > 0 and now - last_ts < retry_seconds:
                                         continue
                             tasks.append(self._probe_model(client, t, timeout, m))
                         if tasks:
