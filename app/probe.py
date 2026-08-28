@@ -119,6 +119,7 @@ async def probe_inference_stream(client: httpx.AsyncClient, target: dict,
     t0 = time.monotonic()
     is_anthropic = target["type"].startswith("anthropic")
     prompt = (target.get("prompt") or "").strip()
+    msg_content = prompt if prompt else "ping"
     if is_anthropic:
         url = target["base_url"].rstrip("/") + "/v1/messages"
         headers = {"anthropic-version": "2023-06-01",
@@ -128,21 +129,15 @@ async def probe_inference_stream(client: httpx.AsyncClient, target: dict,
         # Anthropic 要求必填 max_tokens：有提示词时放宽至 4096，无提示词保持 64
         max_tok = 4096 if prompt else 64
         body = {"model": model, "max_tokens": max_tok,
-                "messages": [{"role": "user", "content": "ping"}],
+                "messages": [{"role": "user", "content": msg_content}],
                 "stream": True}
-        if prompt:
-            body["system"] = prompt
     else:
         url = build_v1_url(target["base_url"], "/chat/completions")
         headers = {"content-type": "application/json"}
         if target.get("api_key"):
             headers["authorization"] = f"Bearer {target['api_key']}"
-        messages = []
-        if prompt:
-            messages.append({"role": "system", "content": prompt})
-        messages.append({"role": "user", "content": "ping"})
         body = {"model": model,
-                "messages": messages,
+                "messages": [{"role": "user", "content": msg_content}],
                 "stream": True}
         # 有提示词时不带 max_tokens（不设限），无提示词带 64 限制快速探测
         if not prompt:
@@ -261,6 +256,7 @@ async def probe_inference(client: httpx.AsyncClient, target: dict, timeout: floa
         return await probe_inference_stream(client, target, timeout, model)
     t0 = time.monotonic()
     prompt = (target.get("prompt") or "").strip()
+    msg_content = prompt if prompt else "ping"
     try:
         if target["type"].startswith("anthropic"):
             url = target["base_url"].rstrip("/") + "/v1/messages"
@@ -270,20 +266,14 @@ async def probe_inference(client: httpx.AsyncClient, target: dict, timeout: floa
                 headers["x-api-key"] = target["api_key"]
             max_tok = 4096 if prompt else 64
             body = {"model": model, "max_tokens": max_tok,
-                    "messages": [{"role": "user", "content": "ping"}]}
-            if prompt:
-                body["system"] = prompt
+                    "messages": [{"role": "user", "content": msg_content}]}
         else:
             url = build_v1_url(target["base_url"], "/chat/completions")
             headers = {"content-type": "application/json"}
             if target.get("api_key"):
                 headers["authorization"] = f"Bearer {target['api_key']}"
-            messages = []
-            if prompt:
-                messages.append({"role": "system", "content": prompt})
-            messages.append({"role": "user", "content": "ping"})
             body = {"model": model,
-                    "messages": messages,
+                    "messages": [{"role": "user", "content": msg_content}],
                     "stream": False}
             if not prompt:
                 body["max_tokens"] = 64
