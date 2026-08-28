@@ -181,16 +181,17 @@ def _model_stats(conn: sqlite3.Connection, target_id: int, model: str,
             else:
                 out["bars"].append(0.5)          # 黄：部分失败或偏慢
 
-    # 窗口可用率：由色块加权推导。灰条（窗口内长时间无探测）计为不可用，
-    # 避免宕机/停测后刚恢复被误显示为 100% 可用；仅最右（最新）一格若为灰条，
-    # 视为当前区间尚未完成探测，不计入分母。
+    # 窗口可用率：由色块加权推导。灰条（窗口内长时间无探测）与红条（探测失败）
+    # 计为不可用；黄条（服务可用但偏慢，>5s）与绿条一样计为 1——慢≠不可用。
+    # 仅最右（最新）一格若为灰条，视为当前区间尚未完成探测，不计入分母。
     if rows:
         bars = out["bars"]
         effective = bars[:-1] if bars and bars[-1] is None else bars
         denom = len(effective)
         if denom:
             out["uptime"] = round(
-                100.0 * sum(0.0 if b is None else b for b in effective) / denom, 2)
+                100.0 * sum(0.0 if b is None or b == 0.0 else 1.0
+                            for b in effective) / denom, 2)
 
     # 最新一次探测（成败皆取）：状态 + 最近探测时间
     r = conn.execute(
