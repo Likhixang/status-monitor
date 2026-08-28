@@ -125,7 +125,9 @@ async def probe_inference_stream(client: httpx.AsyncClient, target: dict,
                    "content-type": "application/json"}
         if target.get("api_key"):
             headers["x-api-key"] = target["api_key"]
-        body = {"model": model, "max_tokens": 64,
+        # Anthropic 要求必填 max_tokens：有提示词时放宽至 4096，无提示词保持 64
+        max_tok = 4096 if prompt else 64
+        body = {"model": model, "max_tokens": max_tok,
                 "messages": [{"role": "user", "content": "ping"}],
                 "stream": True}
         if prompt:
@@ -141,7 +143,10 @@ async def probe_inference_stream(client: httpx.AsyncClient, target: dict,
         messages.append({"role": "user", "content": "ping"})
         body = {"model": model,
                 "messages": messages,
-                "max_tokens": 64, "stream": True}
+                "stream": True}
+        # 有提示词时不带 max_tokens（不设限），无提示词带 64 限制快速探测
+        if not prompt:
+            body["max_tokens"] = 64
     body = _merge_extra_body(body, target)
     try:
         async with client.stream("POST", url, json=body, headers=headers,
@@ -263,7 +268,8 @@ async def probe_inference(client: httpx.AsyncClient, target: dict, timeout: floa
                        "content-type": "application/json"}
             if target.get("api_key"):
                 headers["x-api-key"] = target["api_key"]
-            body = {"model": model, "max_tokens": 64,
+            max_tok = 4096 if prompt else 64
+            body = {"model": model, "max_tokens": max_tok,
                     "messages": [{"role": "user", "content": "ping"}]}
             if prompt:
                 body["system"] = prompt
@@ -278,7 +284,9 @@ async def probe_inference(client: httpx.AsyncClient, target: dict, timeout: floa
             messages.append({"role": "user", "content": "ping"})
             body = {"model": model,
                     "messages": messages,
-                    "max_tokens": 64, "stream": False}
+                    "stream": False}
+            if not prompt:
+                body["max_tokens"] = 64
         body = _merge_extra_body(body, target)
         r = await client.post(url, json=body, headers=headers, timeout=timeout)
         latency = int((time.monotonic() - t0) * 1000)
