@@ -118,6 +118,7 @@ async def probe_inference_stream(client: httpx.AsyncClient, target: dict,
     """
     t0 = time.monotonic()
     is_anthropic = target["type"].startswith("anthropic")
+    prompt = (target.get("prompt") or "").strip()
     if is_anthropic:
         url = target["base_url"].rstrip("/") + "/v1/messages"
         headers = {"anthropic-version": "2023-06-01",
@@ -127,13 +128,19 @@ async def probe_inference_stream(client: httpx.AsyncClient, target: dict,
         body = {"model": model, "max_tokens": 64,
                 "messages": [{"role": "user", "content": "ping"}],
                 "stream": True}
+        if prompt:
+            body["system"] = prompt
     else:
         url = build_v1_url(target["base_url"], "/chat/completions")
         headers = {"content-type": "application/json"}
         if target.get("api_key"):
             headers["authorization"] = f"Bearer {target['api_key']}"
+        messages = []
+        if prompt:
+            messages.append({"role": "system", "content": prompt})
+        messages.append({"role": "user", "content": "ping"})
         body = {"model": model,
-                "messages": [{"role": "user", "content": "ping"}],
+                "messages": messages,
                 "max_tokens": 64, "stream": True}
     body = _merge_extra_body(body, target)
     try:
@@ -248,6 +255,7 @@ async def probe_inference(client: httpx.AsyncClient, target: dict, timeout: floa
     if target["type"].endswith("-stream"):
         return await probe_inference_stream(client, target, timeout, model)
     t0 = time.monotonic()
+    prompt = (target.get("prompt") or "").strip()
     try:
         if target["type"].startswith("anthropic"):
             url = target["base_url"].rstrip("/") + "/v1/messages"
@@ -257,13 +265,19 @@ async def probe_inference(client: httpx.AsyncClient, target: dict, timeout: floa
                 headers["x-api-key"] = target["api_key"]
             body = {"model": model, "max_tokens": 64,
                     "messages": [{"role": "user", "content": "ping"}]}
+            if prompt:
+                body["system"] = prompt
         else:
             url = build_v1_url(target["base_url"], "/chat/completions")
             headers = {"content-type": "application/json"}
             if target.get("api_key"):
                 headers["authorization"] = f"Bearer {target['api_key']}"
+            messages = []
+            if prompt:
+                messages.append({"role": "system", "content": prompt})
+            messages.append({"role": "user", "content": "ping"})
             body = {"model": model,
-                    "messages": [{"role": "user", "content": "ping"}],
+                    "messages": messages,
                     "max_tokens": 64, "stream": False}
         body = _merge_extra_body(body, target)
         r = await client.post(url, json=body, headers=headers, timeout=timeout)

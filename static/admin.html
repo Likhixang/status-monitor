@@ -401,6 +401,10 @@ if ('serviceWorker' in navigator) {
           <div class="field half"><label>停测后试探间隔（秒，0 = 停测后每轮都探测，留空用全局默认）</label><input id="f-retry-sec" type="number" min="0" max="86400" placeholder="默认 1800"></div>
         </div>
         <div class="field"><label><input type="checkbox" id="f-enabled" checked style="width:auto"> 启用监测</label></div>
+        <div class="field"><label>预设提示词（可选，填了则每次探测带上该提示词）</label>
+          <textarea id="f-prompt" rows="2" style="font-family:monospace;font-size:12px"
+            placeholder="如：你是一个专业的技术助手，请简短回答。"></textarea>
+        </div>
         <div class="field"><label>附加请求体参数（JSON，可选）</label>
           <textarea id="f-extra-body" rows="2" style="font-family:monospace;font-size:12px"
             placeholder='{"reasoning": {"context": "auto"}}'></textarea>
@@ -845,6 +849,7 @@ function fillForm(x) {
   $('f-fail').value = x.fail_threshold; $('f-recover').value = x.recover_threshold;
   $('f-suspend-fails').value = x.suspend_fails ?? '';
   $('f-retry-sec').value = x.suspend_retry_seconds ?? '';
+  $('f-prompt').value = x.prompt || '';
   $('f-extra-body').value = x.extra_body || '';
   $('f-enabled').checked = x.enabled;
   $('f-show-status').checked = x.show_on_status ?? true;
@@ -878,6 +883,7 @@ async function resetForm() {
   $('f-key').placeholder = 'sk-...';
   $('f-interval').value = 120; $('f-timeout').value = 15; $('f-fail').value = 3; $('f-recover').value = 3;
   $('f-suspend-fails').value = ''; $('f-retry-sec').value = '';
+  $('f-prompt').value = '';
   $('f-extra-body').value = '';
   // 从全局设置读取停测阈值/试探间隔默认值，显示在 placeholder
   try {
@@ -910,6 +916,7 @@ function collectForm() {
     enabled: $('f-enabled').checked,
     show_on_status: $('f-show-status').checked,
     notify_enabled: $('f-notify').checked,
+    prompt: $('f-prompt').value.trim(),
     extra_body: $('f-extra-body').value.trim(),
   };
   // API Key：编辑时输入框为空（placeholder 显示原 key 掩码），留空 = 保留原 key；

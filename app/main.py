@@ -421,6 +421,8 @@ class TargetIn(BaseModel):
     enabled: bool = True
     show_on_status: bool = True
     notify_enabled: bool = True
+    prompt: str = Field(default="", max_length=4096,
+                        description="预设提示词（可选，填了则每次探测带上该提示词）")
     extra_body: str = Field(default="", max_length=2048,
                             description="附加请求体参数（JSON 对象字符串，如 {\"reasoning\": {\"context\": \"auto\"}}）")
 
@@ -470,8 +472,8 @@ async def admin_create_target(body: TargetIn):
             "INSERT INTO targets(name,group_name,type,base_url,api_key_enc,model_name,"
             " probe_mode,interval_seconds,timeout_seconds,fail_threshold,recover_threshold,"
             " suspend_fails,suspend_retry_seconds,"
-            " enabled,show_on_status,notify_enabled,extra_body,status,created_at,updated_at)"
-            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            " enabled,show_on_status,notify_enabled,extra_body,prompt,status,created_at,updated_at)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (body.name, body.group_name, body.type, body.base_url,
              core.encrypt_api_key(body.api_key), body.model_name,
              body.probe_mode, body.interval_seconds, body.timeout_seconds,
@@ -479,7 +481,7 @@ async def admin_create_target(body: TargetIn):
              body.suspend_fails, body.suspend_retry_seconds,
              1 if body.enabled else 0, 1 if body.show_on_status else 0,
              1 if body.notify_enabled else 0,
-             body.extra_body.strip(), "unknown", now, now))
+             body.extra_body.strip(), body.prompt.strip(), "unknown", now, now))
         conn.commit()
         tid = cur.lastrowid
         if tid:
@@ -512,14 +514,14 @@ async def admin_update_target(tid: int, body: TargetIn):
             "UPDATE targets SET name=?,group_name=?,type=?,base_url=?,api_key_enc=?,model_name=?,"
             " probe_mode=?,interval_seconds=?,timeout_seconds=?,fail_threshold=?,recover_threshold=?,"
             " suspend_fails=?,suspend_retry_seconds=?,"
-            " enabled=?,show_on_status=?,notify_enabled=?,extra_body=?,auto_disabled=0,updated_at=? WHERE id=?",
+            " enabled=?,show_on_status=?,notify_enabled=?,extra_body=?,prompt=?,auto_disabled=0,updated_at=? WHERE id=?",
             (body.name, body.group_name, body.type, body.base_url, enc, body.model_name,
              body.probe_mode, body.interval_seconds, body.timeout_seconds,
              body.fail_threshold, body.recover_threshold,
              body.suspend_fails, body.suspend_retry_seconds,
              1 if body.enabled else 0, 1 if body.show_on_status else 0,
              1 if body.notify_enabled else 0,
-             body.extra_body.strip(), core.now_iso(), tid))
+             body.extra_body.strip(), body.prompt.strip(), core.now_iso(), tid))
         conn.commit()
     finally:
         conn.close()
