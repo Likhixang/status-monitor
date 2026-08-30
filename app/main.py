@@ -110,7 +110,7 @@ def api_login(body: LoginIn):
 # ---------- 公开状态页 API ----------
 
 WINDOW_SECONDS = 4 * 3600      # 兜底时间轴窗口（实际窗口 = 120 × 探测间隔，见 _model_stats）
-SLOW_MS = 5000                  # 首字偏慢阈值（>5s 标黄）
+SLOW_MS = 5000                  # 保留常量（历史兼容），不再用于标黄
 BARS_MAX = 120                  # 色块条固定格数：一格 = 一次探测，窗口随间隔自适应
 
 
@@ -159,7 +159,7 @@ def _model_stats(conn: sqlite3.Connection, target_id: int, model: str,
         # 与下方由色块推导的 uptime 口径一致，避免"宕机后恢复"显示 100% 可用
         out["total_count"] = n_bars
 
-    # 色块条：每格 = bar_sec，绿=全过且不慢，黄=部分失败或慢，红=全败，灰=无数据
+    # 色块条：每格 = bar_sec，绿=可用（成功，不因慢标黄），红=不可用，灰=无数据
     segs: list[list[tuple[int, int]]] = [[] for _ in range(n_bars)]
     now = time.time()
     for r in rows:
@@ -172,17 +172,13 @@ def _model_stats(conn: sqlite3.Connection, target_id: int, model: str,
             out["bars"].append(None)
         else:
             ok_n = sum(ok for ok, _ in seg)
-            ratio = ok_n / len(seg)
-            avg_lat = sum(lat for _, lat in seg) / len(seg)
-            if ratio == 1.0 and avg_lat <= SLOW_MS:
-                out["bars"].append(1.0)          # 绿
-            elif ratio == 0.0:
-                out["bars"].append(0.0)          # 红
+            if ok_n == 0:
+                out["bars"].append(0.0)          # 红：全部失败
             else:
-                out["bars"].append(0.5)          # 黄：部分失败或偏慢
+                out["bars"].append(1.0)          # 绿：至少一次成功即为可用
 
     # 窗口可用率：由色块加权推导。灰条（窗口内长时间无探测）与红条（探测失败）
-    # 计为不可用；黄条（服务可用但偏慢，>5s）与绿条一样计为 1——慢≠不可用。
+    # 计为不可用；绿条（服务可用，不因慢标黄）与绿条一样计为 1——慢≠不可用。
     # 仅最右（最新）一格若为灰条，视为当前区间尚未完成探测，不计入分母。
     if rows:
         bars = out["bars"]
@@ -303,12 +299,10 @@ def _group_targets(conn: sqlite3.Connection, include_paused: bool = False) -> di
             status = "maintenance"
         elif ok_n == 0 and down_n == 0:
             status = "unknown"
-        elif down_n == 0:
-            status = "up"
         elif ok_n == 0:
             status = "down"
         else:
-            status = "partial"
+            status = "up"
         paused = t["show_on_status"] == 0
         if not paused:
             for i in model_items:

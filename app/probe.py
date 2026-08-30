@@ -597,7 +597,7 @@ class Engine:
             # 达阈值，由 send_model_alert 内部防抖判定：最近 fails 次全失败且
             # 更早一次成功才发）；上轮失败 → 本轮成功 = 恢复。
             # 同类别同一轮合并成一条推送。发送时机在三态判定之后（见下方），
-            # 恢复仅在目标未整体恢复（partial/down）时发，避免与目标级 up 重复。
+            # 恢复仅在目标未整体恢复（down）时发，避免与目标级 up 重复。
             new_failed = []
             new_recovered = []
             if update_state and not in_maintenance:
@@ -626,7 +626,7 @@ class Engine:
                 conn.commit()
                 return results
 
-            # 轮级三态判定：全部成功 → up；全部失败 → down 候选；混合 → partial
+            # 轮级状态判定：全部成功 → up；全部失败 → down 候选；混合 → up（只要可用）
             oks = [r["ok"] for r in results]
             # 空 results（如全部模型停测且未到试探间隔）绝不能判为可用：
             # all([]) == True 会把"没有任何探测结果"误判成全部成功。
@@ -665,16 +665,14 @@ class Engine:
                 # 部分失败：打断连续成功/失败计数
                 streak = 0
 
-            # 三态判定（以最新一轮为准，异常需连续全失败坐实）：
-            # 全成功 → 可用；部分失败 → 部分；连续全失败达到 fail_threshold → 异常
+            # 状态判定：全成功/部分成功 → up；连续全失败达到阈值 → down
+            # 部分成功视为可用（不因部分模型慢/失败标黄），模型级告警仍会触发
             if no_models:
                 status = "down"
-            elif all_ok:
-                status = "up"
             elif all_fail and streak <= -fail_th:
                 status = "down"
             else:
-                status = "partial"
+                status = "up"
 
             conn.execute(
                 "UPDATE targets SET status=?, streak=?, last_check_at=?,"
@@ -682,14 +680,14 @@ class Engine:
                 (status, streak, core.now_iso(), latency, err_text,
                  core.now_iso(), t["id"]))
 
-            # 事件只在 down（连续 fail_threshold 次全失败坐实）时开立——瞬时 partial
-            # 抖动（如单模型一次超时）不产生事件记录。恢复通知仅在有关事件时发，
-            # 无事件的 partial→up 视为抖动静默处理，不推无头恢复。
+            # 事件只在 down（连续 fail_threshold 次全失败坐实）时开立——瞬时抖动
+            # （如单模型一次超时）不产生事件记录。恢复通知仅在有关事件时发，
+            # 无事件的部分失败→up 视为抖动静默处理，不推无头恢复。
             # 异常通知开关：notify_enabled=0 时该目标不推送任何自动告警/恢复通知，
             # 但状态机与事件记录照常进行（仅静默通知，不影响监测/展示）。
             notify_on = bool(int(t.get("notify_enabled") or 0))
             if status == "down" and status_before != "down":
-                # up/unknown/partial → down：开事件 + 告警
+                # up/unknown/历史 partial → down：开事件 + 告警
                 existing = conn.execute(
                     "SELECT id FROM incidents WHERE target_id=? AND status='ongoing'"
                     " ORDER BY id DESC LIMIT 1", (t["id"],)).fetchone()
@@ -719,7 +717,7 @@ class Engine:
                         asyncio.create_task(
                             notify.send_alert(t["name"], "up", None, target_id=t["id"]))
             # 模型级通知发送：故障无条件发（🟡 列出具体模型错误）；
-            # 恢复仅在目标未整体恢复（partial/down，部分模型恢复）时发——
+            # 恢复仅在目标未整体恢复（历史 partial/down）时发，避免与目标级 up 重复。
             # 整体恢复（→up）由上方目标级 up 通知一条覆盖，避免重复推送。
             if new_failed and not in_maintenance and notify_on:
                 asyncio.create_task(

@@ -130,8 +130,7 @@ if ('serviceWorker' in navigator) {
     .evt-table { margin-bottom: 16px; }
     .status-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
     .status-dot.s-down { background: var(--red); }
-    .status-dot.s-partial { background: var(--yellow); }
-    .status-dot.s-mnt { background: var(--blue); }
+    .status-dot.s-mnt { background: var(--yellow); }
     .status-dot.s-ok { background: var(--green); }
     .admin-main { min-width: 0; }
 
@@ -145,7 +144,6 @@ if ('serviceWorker' in navigator) {
     .badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 3px 12px; border-radius: 999px; }
     .badge.up { background: var(--green); color: #fff; }
     .badge.down { background: var(--red); color: #fff; }
-    .badge.partial { background: var(--yellow); color: #000; }
     .badge.unknown { background: #6c757d; color: #fff; }
     .badge.maintenance { background: var(--yellow); color: #000; }
     .badge.off { background: #6c757d; color: #fff; }
@@ -155,7 +153,7 @@ if ('serviceWorker' in navigator) {
   .legend { display: flex; gap: 16px; color: var(--muted); font-size: 12px; margin-bottom: 14px; flex-wrap: wrap; }
   .legend span { display: inline-flex; align-items: center; gap: 6px; }
   .cell { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
-  .cell.g { background: var(--green); box-shadow: 0 0 6px var(--green-bg); } .cell.y { background: var(--yellow); }
+  .cell.g { background: var(--green); box-shadow: 0 0 6px var(--green-bg); }
   .cell.r { background: var(--red); } .cell.n { background: var(--gray); border: 1px solid var(--muted); opacity: .55; }
   .kpi .v { font-size: 20px; font-weight: 700; }
   .kpi .v.red { color: var(--red); }
@@ -196,11 +194,9 @@ if ('serviceWorker' in navigator) {
   .ov-model .m-status { font-size: 12px; min-width: 64px; }
   .ov-model .m-status.up { color: var(--green); }
   .ov-model .m-status.down { color: var(--red); font-weight: 700; }
-  .ov-model .m-status.partial { color: var(--yellow); font-weight: 600; }
   .ov-model .m-status.unknown { color: var(--muted); }
   .ov-model .m-status.maintenance { color: var(--yellow); }
   .ov-model .m-lat { min-width: 80px; font-size: 13px; font-variant-numeric: tabular-nums; }
-  .ov-model .m-lat.slow { color: var(--yellow); }
   .ov-model .m-lat.timeout { color: var(--red); font-weight: 700; }
   .ov-bars { display: flex; gap: 2px; height: 16px; overflow: hidden; justify-content: flex-end; }
   .ov-bars.paused { filter: blur(5px); opacity: .55; pointer-events: none; }
@@ -208,7 +204,6 @@ if ('serviceWorker' in navigator) {
   .ch-paused { font-weight: 400; font-size: 11px; color: var(--muted); background: color-mix(in srgb, var(--muted) 16%, transparent); padding: 2px 10px; border-radius: 999px; margin-left: 6px; }
   .ov-bars-scale { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; margin-top: 3px; font-variant-numeric: tabular-nums; }
   .ov-bar.g { background: var(--green); }
-  .ov-bar.y { background: var(--yellow); }
   .ov-bar.r { background: var(--red); }
   .ov-bar.n { background: var(--gray); }
   .ov-bar:hover { filter: brightness(1.35); }
@@ -350,7 +345,6 @@ if ('serviceWorker' in navigator) {
         <h2>状态总览</h2>
         <div class="legend">
           <span><i class="cell g"></i>可用</span>
-          <span><i class="cell y"></i>首字偏慢 (&gt;5s) / 部分失败</span>
           <span><i class="cell r"></i>不可用</span>
           <span><i class="cell n"></i>无数据</span>
         </div>
@@ -503,7 +497,7 @@ if ('serviceWorker' in navigator) {
 const $ = (id) => document.getElementById(id);
 let TOKEN = localStorage.getItem('status_token') || '';
 const ADMIN = 1, UP = 0;
-const ST = { up: '可用', down: '异常', partial: '部分', unknown: '无数据', maintenance: '维护中' };
+const ST = { up: '可用', down: '异常', unknown: '无数据', maintenance: '维护中' };
 
 function fmtSec(ms) {
   if (ms === null || ms === undefined) return '—';
@@ -584,11 +578,10 @@ if (TOKEN) { showAdmin(); loadAll(); setupProfile(); } else { showLogin(); }
 // ---------- 状态总览 ----------
 function barClass(v) {
   if (v === null || v === undefined) return 'n';
-  if (v === 1) return 'g';
   if (v === 0) return 'r';
-  return 'y';
+  return 'g';
 }
-const OV_ST = { up: ['可用', 'up'], down: ['异常', 'down'], partial: ['部分', 'partial'], unknown: ['无数据', 'unknown'], maintenance: ['维护中', 'maintenance'] };
+const OV_ST = { up: ['可用', 'up'], down: ['异常', 'down'], unknown: ['无数据', 'unknown'], maintenance: ['维护中', 'maintenance'] };
 function ovBadge(m) {
   if (m.suspended) return '<span class="badge unknown">已停测</span>';
   const st = OV_ST[m.status] || OV_ST.unknown;
@@ -608,8 +601,8 @@ function fmtRel(iso) {
 function fmtDT(d) {
   return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
-const BAR_ST = { g: '可用', y: '首字偏慢 / 部分失败', r: '不可用', n: '无数据' };
-const BAR_COLOR = { g: 'var(--green)', y: 'var(--yellow)', r: 'var(--red)', n: 'var(--gray)' };
+const BAR_ST = { g: '可用', r: '不可用', n: '无数据' };
+const BAR_COLOR = { g: 'var(--green)', r: 'var(--red)', n: 'var(--gray)' };
 
 function fmtDTs(d) {
   return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
@@ -682,9 +675,9 @@ async function loadOverview() {
         <table class="evt-table">
         <thead><tr><th>名称</th><th>状态</th><th>时间</th><th>消息</th></tr></thead>
         <tbody>${items.map(i => {
-          const dot = i.status === 'ongoing' ? (i.severity === 'down' ? 's-down' : 's-partial')
+          const dot = i.status === 'ongoing' ? 's-down'
             : (i.status === 'maintenance' ? 's-mnt' : 's-ok');
-          const label = i.status === 'ongoing' ? (i.severity === 'down' ? '故障中' : '部分故障')
+          const label = i.status === 'ongoing' ? '故障中'
             : (i.status === 'maintenance' ? '维护中' : '已解决');
           const dur = i.duration_seconds !== null && i.duration_seconds !== undefined
             ? ' · 持续 ' + fmtDuration(i.duration_seconds) : '';
@@ -720,7 +713,7 @@ async function loadOverview() {
         } else if (m.timeout_seconds && m.last_latency_ms >= m.timeout_seconds * 1000) {
           latHtml = `<span class="m-lat timeout">首字 >${m.timeout_seconds}s</span>`;
         } else if (m.last_latency_ms > 5000) {
-          latHtml = `<span class="m-lat slow">首字 ${fmtSec(m.last_latency_ms)}</span>`;
+          latHtml = `<span class="m-lat">首字 ${fmtSec(m.last_latency_ms)}</span>`;
         } else {
           latHtml = `<span class="m-lat">首字 ${fmtSec(m.last_latency_ms)}</span>`;
         }
@@ -1027,8 +1020,8 @@ async function loadIncidents() {
     <tr><th>目标</th><th>状态</th><th>开始</th><th>结束</th><th>持续</th><th>备注</th><th>操作</th></tr>
     ${d.incidents.map(i => `<tr>
       <td class="c-main">${escapeHtml(i.target_name)}</td>
-      <td class="c-badge"><span class="badge ${i.status === 'ongoing' ? (i.severity === 'down' ? 'down' : 'partial') : (i.status === 'maintenance' ? 'maintenance' : 'up')}">
-        ${i.status === 'ongoing' ? (i.severity === 'down' ? '故障中' : '部分故障') : (i.status === 'maintenance' ? '维护中' : '已解决')}</span></td>
+      <td class="c-badge"><span class="badge ${i.status === 'ongoing' ? 'down' : (i.status === 'maintenance' ? 'maintenance' : 'up')}">
+        ${i.status === 'ongoing' ? '故障中' : (i.status === 'maintenance' ? '维护中' : '已解决')}</span></td>
       <td data-label="开始">${fmtTime(i.started_at)}</td>
       <td data-label="结束">${fmtTime(i.ended_at)}</td>
       <td data-label="持续">${i.duration_seconds ?? '—'} s</td>

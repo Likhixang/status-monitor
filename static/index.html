@@ -81,7 +81,6 @@ if ('serviceWorker' in navigator) {
   .banner { display: flex; align-items: center; gap: 18px; background: var(--panel); border-radius: 6px; padding: 20px 24px; margin-bottom: 24px; box-shadow: var(--shadow); }
   .banner .b-ic { width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 17px; font-weight: 700; color: #fff; flex-shrink: 0; }
   .banner .b-ic.ok { background: var(--green); }
-  .banner .b-ic.partial { background: var(--yellow); }
   .banner .b-ic.down { background: var(--red); }
   .banner .b-title { font-size: 25px; font-weight: 700; }
   .banner .b-sub { font-size: 13px; color: var(--muted); margin-top: 3px; }
@@ -124,7 +123,6 @@ if ('serviceWorker' in navigator) {
   .model-status { font-size: 12px; }
   .model-status.up { color: var(--green); }
   .model-status.down { color: var(--red); font-weight: 700; }
-  .model-status.partial { color: var(--yellow); font-weight: 600; }
   .model-status.unknown { color: var(--muted); }
   .model-status.maintenance { color: var(--yellow); }
   /* Kuma 式 extra-info：名称下方小字（统计/错误/停测） */
@@ -187,13 +185,13 @@ if ('serviceWorker' in navigator) {
 
 <script>
 const $ = (id) => document.getElementById(id);
-const ST = { up: '可用', down: '异常', partial: '部分', unknown: '无数据', maintenance: '维护中' };
+const ST = { up: '可用', down: '异常', unknown: '无数据', maintenance: '维护中' };
 const modelStatusHtml = (st) => {
   if (st === 'down') return '<span class="model-status down">异常</span>';
   if (st === 'maintenance') return '<span class="model-status maintenance">维护中</span>';
-  if (st === 'partial') return '<span class="model-status partial">部分</span>';
-  const cls = (st === 'up' || st === 'unknown') ? st : 'unknown';
-  return `<span class="model-status ${cls}">${ST[st] || ST.unknown}</span>`;
+  // partial 不再产生，兼容历史数据视为 unknown
+  if (st === 'partial' || st === 'unknown') return '<span class="model-status unknown">无数据</span>';
+  return '<span class="model-status up">可用</span>';
 };
 
 function fmtSec(ms) {
@@ -226,12 +224,11 @@ function modelBadge(m) {
 
 function barClass(v) {
   if (v === null || v === undefined) return 'n';
-  if (v === 1) return 'g';
   if (v === 0) return 'r';
-  return 'y';
+  return 'g';
 }
-const BAR_ST = { g: '可用', y: '首字偏慢 / 部分失败', r: '不可用', n: '无数据' };
-const BAR_COLOR = { g: 'var(--green)', y: 'var(--yellow)', r: 'var(--red)', n: 'var(--gray)' };
+const BAR_ST = { g: '可用', r: '不可用', n: '无数据' };
+const BAR_COLOR = { g: 'var(--green)', r: 'var(--red)', n: 'var(--gray)' };
 
 function fmtDTs(d) {
   return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
@@ -311,7 +308,7 @@ function renderModel(m) {
   } else if (m.timeout_seconds && m.last_latency_ms >= m.timeout_seconds * 1000) {
     latHtml = `<span class="model-latency timeout">首字 >${m.timeout_seconds}s</span>`;
   } else if (m.last_latency_ms > 5000) {
-    latHtml = `<span class="model-latency slow">首字 ${fmtSec(m.last_latency_ms)}</span>`;
+    latHtml = `<span class="model-latency">首字 ${fmtSec(m.last_latency_ms)}</span>`;
   } else {
     latHtml = `<span class="model-latency">首字 ${fmtSec(m.last_latency_ms)}</span>`;
   }
@@ -359,10 +356,11 @@ function renderChannel(c) {
 }
 
 function renderIncident(i) {
-  const titleCls = i.status === 'ongoing' ? (i.severity === 'down' ? 't-down' : 't-partial')
+  // 新事件仅 down；maintenance 单独显示
+  const titleCls = i.status === 'ongoing' ? 't-down'
     : (i.status === 'maintenance' ? 't-partial' : 't-resolved');
   const label = i.status === 'ongoing'
-    ? (i.severity === 'down' ? '🔴 故障中' : '🟡 部分故障')
+    ? '🔴 故障中'
     : (i.status === 'maintenance' ? '🟡 维护中' : '✅ 已解决');
   const dur = i.duration_seconds !== null ? ` · 持续 ${fmtDuration(i.duration_seconds)}` : '';
   const note = i.note ? `<div class="i-note">${escapeHtml(i.note)}</div>` : '';
@@ -388,14 +386,12 @@ async function refresh() {
     const s = d.summary;
     const uptimeCls = s.uptime === null ? '' : (s.uptime >= 99 ? 'good' : (s.uptime >= 90 ? 'warn' : 'bad'));
     const latestCls = s.latest_uptime === null ? '' : (s.latest_uptime >= 99 ? 'good' : (s.latest_uptime >= 90 ? 'warn' : 'bad'));
-    // Kuma 式总状态横幅：图标 + 大字状态
+    // 总状态横幅：仅绿（正常）/ 红（异常），无黄色 partial
     let bIc = 'ok', bTitle = '全部系统正常', bSub = '所有监控目标运行正常';
     if (s.abnormal > 0) {
       bIc = 'down'; bTitle = '服务异常'; bSub = `${s.abnormal} 个模型不可用`;
-    } else if (s.abnormal_channels > 0) {
-      bIc = 'partial'; bTitle = '部分服务降级'; bSub = `${s.abnormal_channels} 个渠道存在异常`;
     }
-    const bIcon = bIc === 'ok' ? '✓' : (bIc === 'partial' ? '⚠' : '✕');
+    const bIcon = bIc === 'ok' ? '✓' : '✕';
     $('banner').innerHTML = `<div class="b-ic ${bIc}">${bIcon}</div>
       <div><div class="b-title">${bTitle}</div><div class="b-sub">${bSub}</div></div>`;
 
