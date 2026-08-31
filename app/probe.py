@@ -313,7 +313,7 @@ async def probe_inference(client: httpx.AsyncClient, target: dict, timeout: floa
 class Engine:
     """探测调度：每 15s tick 一次，找出到期 target 并发探测（semaphore 限流）。"""
 
-    def __init__(self, max_concurrent: int = 4, max_model_concurrent: int = 8):
+    def __init__(self, max_concurrent: int = 4, max_model_concurrent: int = 4):
         self.sem = asyncio.Semaphore(max_concurrent)
         self.model_sem = asyncio.Semaphore(max_model_concurrent)
         self._inflight: set[int] = set()

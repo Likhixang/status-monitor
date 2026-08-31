@@ -225,10 +225,11 @@ function modelBadge(m) {
 function barClass(v) {
   if (v === null || v === undefined) return 'n';
   if (v === 0) return 'r';
+  if (v === 0.5) return 'y';
   return 'g';
 }
-const BAR_ST = { g: '可用', r: '不可用', n: '无数据' };
-const BAR_COLOR = { g: 'var(--green)', r: 'var(--red)', n: 'var(--gray)' };
+const BAR_ST = { g: '可用', r: '不可用', y: '推断', n: '无数据' };
+const BAR_COLOR = { g: 'var(--green)', r: 'var(--red)', y: 'var(--yellow)', n: 'var(--gray)' };
 
 function fmtDTs(d) {
   return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;

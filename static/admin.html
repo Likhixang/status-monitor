@@ -206,6 +206,7 @@ if ('serviceWorker' in navigator) {
   .ov-bar.g { background: var(--green); }
   .ov-bar.r { background: var(--red); }
   .ov-bar.n { background: var(--gray); }
+  .ov-bar.y { background: var(--yellow); }
   .ov-bar:hover { filter: brightness(1.35); }
   .tt { position: fixed; z-index: 999; display: none; background: var(--tooltip-bg); border: 1px solid var(--border); border-radius: 12px; padding: 8px 12px; font-size: 12px; pointer-events: none; box-shadow: var(--shadow); white-space: nowrap; }
   .tt .t-st { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 7px; }
@@ -579,6 +580,7 @@ if (TOKEN) { showAdmin(); loadAll(); setupProfile(); } else { showLogin(); }
 function barClass(v) {
   if (v === null || v === undefined) return 'n';
   if (v === 0) return 'r';
+  if (v === 0.5) return 'y';
   return 'g';
 }
 const OV_ST = { up: ['可用', 'up'], down: ['异常', 'down'], unknown: ['无数据', 'unknown'], maintenance: ['维护中', 'maintenance'] };
@@ -601,8 +603,8 @@ function fmtRel(iso) {
 function fmtDT(d) {
   return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
-const BAR_ST = { g: '可用', r: '不可用', n: '无数据' };
-const BAR_COLOR = { g: 'var(--green)', r: 'var(--red)', n: 'var(--gray)' };
+const BAR_ST = { g: '可用', r: '不可用', y: '推断', n: '无数据' };
+const BAR_COLOR = { g: 'var(--green)', r: 'var(--red)', y: 'var(--yellow)', n: 'var(--gray)' };
 
 function fmtDTs(d) {
   return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;

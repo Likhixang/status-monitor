@@ -177,16 +177,39 @@ def _model_stats(conn: sqlite3.Connection, target_id: int, model: str,
             else:
                 out["bars"].append(1.0)          # 绿：至少一次成功即为可用
 
+    # 漏测推断：探测没跟上（该格无探测记录）导致的灰条，用前后最近的非灰条
+    # 推断填充——都绿→绿(1.0)，都红→红(0.0)，一红一绿→黄(0.5)。
+    # 参照只取原始探测结果（推断出的黄条不再作为参照），保证连续灰条段
+    # 内的每一格都按同一对真实前后值推断（如 [绿,灰,灰,红] → 全黄）。
+    # 窗口两端无前后参照的灰条（新目标历史不足）保持灰。
+    bars = out["bars"]
+    ref = list(bars)  # 推断前的原始参照（黄条不被当作后续参照）
+    for i in range(n_bars):
+        if bars[i] is not None:
+            continue
+        prev = next((b for b in reversed(ref[:i]) if b is not None), None)
+        nxt = next((b for b in ref[i + 1:] if b is not None), None)
+        if prev is None or nxt is None:
+            continue
+        if prev > 0 and nxt > 0:
+            bars[i] = 1.0          # 前后都绿 → 绿
+        elif prev == 0 and nxt == 0:
+            bars[i] = 0.0          # 前后都红 → 红
+        else:
+            bars[i] = 0.5          # 一红一绿 → 黄
+
     # 窗口可用率：由色块加权推导。灰条（窗口内长时间无探测）与红条（探测失败）
-    # 计为不可用；绿条（服务可用，不因慢标黄）与绿条一样计为 1——慢≠不可用。
-    # 仅最右（最新）一格若为灰条，视为当前区间尚未完成探测，不计入分母。
+    # 计为不可用；绿条（服务可用，不因慢标黄）计为 1；黄条（漏测推断，一红一绿
+    # 之间）计 0.5——慢≠不可用。仅最右（最新）一格若为灰条，视为当前区间尚未
+    # 完成探测，不计入分母。
     if rows:
         bars = out["bars"]
         effective = bars[:-1] if bars and bars[-1] is None else bars
         denom = len(effective)
         if denom:
             out["uptime"] = round(
-                100.0 * sum(0.0 if b is None or b == 0.0 else 1.0
+                100.0 * sum(0.0 if b is None or b == 0.0 else
+                            (0.5 if b == 0.5 else 1.0)
                             for b in effective) / denom, 2)
 
     # 最新一次探测（成败皆取）：状态 + 最近探测时间
