@@ -110,7 +110,7 @@ def api_login(body: LoginIn):
 # ---------- 公开状态页 API ----------
 
 WINDOW_SECONDS = 4 * 3600      # 兜底时间轴窗口（实际窗口 = 120 × 探测间隔，见 _model_stats）
-SLOW_MS = 5000                  # 保留常量（历史兼容），不再用于标黄
+SLOW_MS = 5000                  # 首字时间（TTFT）> 5s 标黄（慢）
 BARS_MAX = 120                  # 色块条固定格数：一格 = 一次探测，窗口随间隔自适应
 
 
@@ -132,7 +132,7 @@ def _model_stats(conn: sqlite3.Connection, target_id: int, model: str,
     # 与分桶网格同源对齐，探测耗时波动不再造成相位漂移/周期性空桶。
     rows = conn.execute(
         "SELECT checked_at, COALESCE(start_at, checked_at) AS probe_ts,"
-        " ok, latency_ms FROM checks"
+        " ok, latency_ms, ttft_ms FROM checks"
         " WHERE target_id=? AND layer='inference' AND model=?"
         " AND checked_at >= ? ORDER BY checked_at ASC",
         (target_id, model,
@@ -159,14 +159,14 @@ def _model_stats(conn: sqlite3.Connection, target_id: int, model: str,
         # 与下方由色块推导的 uptime 口径一致，避免"宕机后恢复"显示 100% 可用
         out["total_count"] = n_bars
 
-    # 色块条：每格 = bar_sec，绿=可用（成功，不因慢标黄），红=不可用，灰=无数据
-    segs: list[list[tuple[int, int]]] = [[] for _ in range(n_bars)]
+    # 色块条：每格 = bar_sec，绿=全部成功且首字 ≤5s，黄=部分失败或首字>5s，红=全部失败，灰=无数据
+    segs: list[list[tuple[int, int | None]]] = [[] for _ in range(n_bars)]
     now = time.time()
     for r in rows:
         ts = core.parse_iso(r["probe_ts"])
         idx = int((now - ts) // bar_sec)
         if 0 <= idx < n_bars:
-            segs[n_bars - 1 - idx].append((r["ok"], r["latency_ms"] or 0))
+            segs[n_bars - 1 - idx].append((r["ok"], r["ttft_ms"]))
     for seg in segs:
         if not seg:
             out["bars"].append(None)
@@ -174,34 +174,48 @@ def _model_stats(conn: sqlite3.Connection, target_id: int, model: str,
             ok_n = sum(ok for ok, _ in seg)
             if ok_n == 0:
                 out["bars"].append(0.0)          # 红：全部失败
+            elif ok_n < len(seg):
+                out["bars"].append(0.5)          # 黄：部分失败（有成功有失败）
             else:
-                out["bars"].append(1.0)          # 绿：至少一次成功即为可用
+                ttfts = [ttft for _, ttft in seg if ttft is not None]
+                if ttfts and max(ttfts) > SLOW_MS:
+                    out["bars"].append(0.5)      # 黄：全部成功但首字时间 > 5s（慢）
+                else:
+                    out["bars"].append(1.0)      # 绿：全部成功且首字 ≤ 5s
 
-    # 漏测推断：探测没跟上（该格无探测记录）导致的灰条，用前后最近的非灰条
-    # 推断填充——都绿→绿(1.0)，都红→红(0.0)，一红一绿→黄(0.5)。
+    # 漏测推断：仅连续灰条段长度 < GREY_INFER_MAX（5）时，用前后最近的非灰条
+    # 推断填充——都绿→绿(1.0)，都红→红(0.0)，一红一绿→黄(0.5)。大片漏测
+    # （≥5 个连续灰条）属于探测中断/停测，不推断、保持灰，避免长时间无数据被错误标色。
     # 参照只取原始探测结果（推断出的黄条不再作为参照），保证连续灰条段
     # 内的每一格都按同一对真实前后值推断（如 [绿,灰,灰,红] → 全黄）。
     # 窗口两端无前后参照的灰条（新目标历史不足）保持灰。
+    GREY_INFER_MAX = 5
     bars = out["bars"]
     ref = list(bars)  # 推断前的原始参照（黄条不被当作后续参照）
-    for i in range(n_bars):
+    i = 0
+    while i < n_bars:
         if bars[i] is not None:
+            i += 1
             continue
-        prev = next((b for b in reversed(ref[:i]) if b is not None), None)
-        nxt = next((b for b in ref[i + 1:] if b is not None), None)
-        if prev is None or nxt is None:
-            continue
-        if prev > 0 and nxt > 0:
-            bars[i] = 1.0          # 前后都绿 → 绿
-        elif prev == 0 and nxt == 0:
-            bars[i] = 0.0          # 前后都红 → 红
-        else:
-            bars[i] = 0.5          # 一红一绿 → 黄
+        j = i
+        while j < n_bars and bars[j] is None:
+            j += 1
+        if j - i < GREY_INFER_MAX:
+            prev = next((b for b in reversed(ref[:i]) if b is not None), None)
+            nxt = next((b for b in ref[j:] if b is not None), None)
+            if prev is not None and nxt is not None:
+                for k in range(i, j):
+                    if prev > 0 and nxt > 0:
+                        bars[k] = 1.0          # 前后都绿 → 绿
+                    elif prev == 0 and nxt == 0:
+                        bars[k] = 0.0          # 前后都红 → 红
+                    else:
+                        bars[k] = 0.5          # 一红一绿 → 黄
+        i = j
 
     # 窗口可用率：由色块加权推导。灰条（窗口内长时间无探测）与红条（探测失败）
-    # 计为不可用；绿条（服务可用，不因慢标黄）计为 1；黄条（漏测推断，一红一绿
-    # 之间）计 0.5——慢≠不可用。仅最右（最新）一格若为灰条，视为当前区间尚未
-    # 完成探测，不计入分母。
+    # 计为不可用；绿条（服务可用）计为 1；黄条（部分失败 / 慢 / 漏测推断）计 0.5。
+    # 仅最右（最新）一格若为灰条，视为当前区间尚未完成探测，不计入分母。
     if rows:
         bars = out["bars"]
         effective = bars[:-1] if bars and bars[-1] is None else bars

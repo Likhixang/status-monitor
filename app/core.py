@@ -87,7 +87,9 @@ CREATE TABLE IF NOT EXISTS pin_state (
     target_id INTEGER PRIMARY KEY,
     chat_id INTEGER NOT NULL,
     message_id INTEGER NOT NULL,
-    pinned_at TEXT NOT NULL
+    pinned_at TEXT NOT NULL,
+    kind TEXT DEFAULT 'model',
+    models TEXT DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS notification_log (
@@ -162,6 +164,12 @@ def init_db() -> None:
     ncols = {r["name"] for r in conn.execute("PRAGMA table_info(notification_log)").fetchall()}
     if "model" not in ncols:
         conn.execute("ALTER TABLE notification_log ADD COLUMN model TEXT DEFAULT ''")
+    # 旧库迁移：pin_state.kind/models 列（故障置顶类型与当前故障模型列表）
+    pcols = {r["name"] for r in conn.execute("PRAGMA table_info(pin_state)").fetchall()}
+    if "kind" not in pcols:
+        conn.execute("ALTER TABLE pin_state ADD COLUMN kind TEXT DEFAULT 'model'")
+    if "models" not in pcols:
+        conn.execute("ALTER TABLE pin_state ADD COLUMN models TEXT DEFAULT ''")
     conn.commit()
     conn.close()
 

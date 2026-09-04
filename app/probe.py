@@ -359,11 +359,7 @@ class Engine:
         finally:
             conn.close()
         await self._maybe_cleanup()
-        # 状态置顶 TTL：超过 2 小时的置顶撤下删除（轻量查询，每 tick 执行）
-        try:
-            await notify.cleanup_stale_pins()
-        except Exception:
-            pass
+        # 注：故障置顶不再按 TTL 撤除——挂到目标变绿为止（清理逻辑见 notify）
         if not due:
             # 看门狗：tick 卡顿探测（上次 tick 超过 3 个周期仍无 due 视为异常）
             if self._inflight and time.time() - self._last_tick_ts > 20:
@@ -593,11 +589,9 @@ class Engine:
             start_iso = (time.strftime("%Y-%m-%d %H:%M:%S",
                                        time.gmtime(start_at))
                          if start_at is not None else None)
-            # 模型级通知计算：本轮失败即收集（是否达连续失败阈值、是否首次
-            # 达阈值，由 send_model_alert 内部防抖判定：最近 fails 次全失败且
-            # 更早一次成功才发）；上轮失败 → 本轮成功 = 恢复。
-            # 同类别同一轮合并成一条推送。发送时机在三态判定之后（见下方），
-            # 恢复仅在目标未整体恢复（down）时发，避免与目标级 up 重复。
+            # 模型级通知计算：本轮失败即收集（是否首次告警/恢复对称性由
+            # sync_target_notifications 内部判定：已告警未恢复不重复推）；
+            # 上轮失败 → 本轮成功 = 恢复。同类别同一轮合并成一条推送。
             new_failed = []
             new_recovered = []
             if update_state and not in_maintenance:
@@ -687,7 +681,7 @@ class Engine:
             # 但状态机与事件记录照常进行（仅静默通知，不影响监测/展示）。
             notify_on = bool(int(t.get("notify_enabled") or 0))
             if status == "down" and status_before != "down":
-                # up/unknown/历史 partial → down：开事件 + 告警
+                # up/unknown/历史 partial → down：开事件（状态机照旧，通知由下方色条判定驱动）
                 existing = conn.execute(
                     "SELECT id FROM incidents WHERE target_id=? AND status='ongoing'"
                     " ORDER BY id DESC LIMIT 1", (t["id"],)).fetchone()
@@ -700,9 +694,6 @@ class Engine:
                         "INSERT INTO incidents(target_id,started_at,status,severity,note,created_at)"
                         " VALUES(?,?,?,?,?,?)",
                         (t["id"], core.now_iso(), "ongoing", status, err_text, core.now_iso()))
-                if not in_maintenance and notify_on:
-                    asyncio.create_task(
-                        notify.send_alert(t["name"], "down", err_text, target_id=t["id"]))
             elif status == "up" and status_before in ("partial", "down"):
                 row = conn.execute(
                     "SELECT id, started_at FROM incidents WHERE target_id=? AND status='ongoing'"
@@ -713,19 +704,15 @@ class Engine:
                         "UPDATE incidents SET ended_at=?, duration_seconds=?, status='resolved'"
                         " WHERE id=?",
                         (core.now_iso(), dur, row["id"]))
-                    if not in_maintenance and notify_on:
-                        asyncio.create_task(
-                            notify.send_alert(t["name"], "up", None, target_id=t["id"]))
-            # 模型级通知发送：故障无条件发（🟡 列出具体模型错误）；
-            # 恢复仅在目标未整体恢复（历史 partial/down）时发，避免与目标级 up 重复。
-            # 整体恢复（→up）由上方目标级 up 通知一条覆盖，避免重复推送。
-            if new_failed and not in_maintenance and notify_on:
+            # 通知同步（与状态机事件解耦，按本轮色条结果即时判定）：
+            # 全红 → 分组故障置顶（不列模型明细）；部分红 → 模型级增量（新红模型并入置顶、
+            # 恢复模型发 30s 通知并移出置顶）；全绿 → 变绿通知（30s 删）+ 撤下故障置顶。
+            fault_all = bool(oks) and not any(oks)
+            if not in_maintenance and notify_on:
                 asyncio.create_task(
-                    notify.send_model_alert(t["name"], new_failed, target_id=t["id"]))
-            if new_recovered and status != "up" and not in_maintenance and notify_on:
-                asyncio.create_task(
-                    notify.send_model_recovered(t["name"], new_recovered,
-                                                target_id=t["id"]))
+                    notify.sync_target_notifications(
+                        t["name"], t["id"], new_failed, new_recovered,
+                        fault_all, all_ok, err_text))
 
             # 自动禁用/恢复：上游无模型 → 自动禁用并隐藏（区分手动/自动禁用，
             # auto_disabled=1 的目标由 tick 按试探间隔轻量检查，恢复后自动重新启用）。
