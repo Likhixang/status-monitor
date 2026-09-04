@@ -707,12 +707,17 @@ class Engine:
             # 通知同步（与状态机事件解耦，按本轮色条结果即时判定）：
             # 全红 → 分组故障置顶（不列模型明细）；部分红 → 模型级增量（新红模型并入置顶、
             # 恢复模型发 30s 通知并移出置顶）；全绿 → 变绿通知（30s 删）+ 撤下故障置顶。
-            fault_all = bool(oks) and not any(oks)
+            # 注意：判定只看 inference 层——connectivity 是存活信号（/v1/models 可达即 ok），
+            # 混入会让"全部模型故障但 API 存活"误判为部分红。全绿同理。
+            inf_oks = [r["ok"] for r in results if r["layer"] == "inference"]
+            fault_all = (bool(oks) and not any(oks)) or (
+                bool(inf_oks) and not any(inf_oks))
+            all_green = bool(inf_oks) and all(inf_oks)
             if not in_maintenance and notify_on:
                 asyncio.create_task(
                     notify.sync_target_notifications(
                         t["name"], t["id"], new_failed, new_recovered,
-                        fault_all, all_ok, err_text))
+                        fault_all, all_green, err_text))
 
             # 自动禁用/恢复：上游无模型 → 自动禁用并隐藏（区分手动/自动禁用，
             # auto_disabled=1 的目标由 tick 按试探间隔轻量检查，恢复后自动重新启用）。
