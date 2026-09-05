@@ -122,22 +122,34 @@ def format_duration(seconds: int | None) -> str:
     return f"{d} 天 {h} 小时" if h else f"{d} 天"
 
 
-def _last_incident(target_id: int) -> dict | None:
-    """最近一次事件（ongoing 或 resolved）的 (duration_seconds, note)。查不到返回 None。"""
+def _last_incident(target_id: int, window: int = 300) -> dict | None:
+    """最近一次事件（ongoing 或 resolved）的 (duration_seconds, note)。查不到返回 None。
+
+    只认 window 秒内的事件：通知按色条即时判定（与状态机解耦），模型级抖动
+    故障不产生 incident；若直接引用历史 incident，恢复通知的持续时长会永远
+    显示上一次真实故障的值（陈旧引用）。真 down→up 时 incident 刚 resolve
+    （ended_at≈现在），落在窗口内正常返回。
+    """
     try:
         conn = core.get_conn()
         try:
             row = conn.execute(
-                "SELECT status, started_at, duration_seconds, note FROM incidents"
+                "SELECT status, started_at, ended_at, duration_seconds, note FROM incidents"
                 " WHERE target_id=? AND status IN ('ongoing','resolved')"
                 " ORDER BY id DESC LIMIT 1", (target_id,)).fetchone()
             if row is None:
                 return None
             d = dict(row)
+            now = time.time()
             if d["status"] == "resolved":
+                # 事件已坐实关闭：只认刚结束的（ended_at 在窗口内，对应本轮恢复）
+                if not d["ended_at"] or now - core.parse_iso(d["ended_at"]) > window:
+                    return None
                 return {"duration_seconds": d["duration_seconds"], "note": d["note"]}
-            # 事件尚未坐实关闭：按已持续时长估算
-            return {"duration_seconds": int(time.time() - core.parse_iso(d["started_at"])),
+            # 事件尚未坐实关闭：按已持续时长估算（只认窗口内开立的）
+            if now - core.parse_iso(d["started_at"]) > window:
+                return None
+            return {"duration_seconds": int(now - core.parse_iso(d["started_at"])),
                     "note": d["note"]}
         finally:
             conn.close()
